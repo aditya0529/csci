@@ -1,0 +1,12 @@
+server:
+  port: 443
+testing:
+  dynamodb:
+    accessKey: "test1"
+    secretKey: "test1"
+    endpoint: "http://localhost:8000"
+  aws:
+    region: "eu-central-1"
+audit:
+  s3:
+    enabled: false

@@ -1,0 +1,36 @@
+#logging:
+#  level:
+#    root: DEBUG
+amazon:
+  region: "eu-central-1"
+  crossAccountRoleArn: "arn:aws:iam::717264881942:role/sw-csci-cross-account-dynamodb-role-com.swift.csci.main.frontend.main-aws"
+security:
+  require-ssl: true
+server:
+  port: 8443 # 8443 for live
+  ssl:
+    enabled: true
+    client-auth: none
+    key-alias: spring
+    key-store: classpath:keystore.jks
+    key-store-password: changeit # TODO do not store this secret in source code
+testing:
+  dynamodb:
+    accessKey: "test"
+    secretKey: "test"
+    endpoint: "http://localhost:8000"
+  aws:
+    region: "eu-central-1"
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  security:
+    saml2:
+      relyingparty:
+        registration:
+          azuread:
+            assertingparty:
+              metadata-uri: "classpath:saml-metadata.xml"
+audit:
+  s3:
+    enabled: true

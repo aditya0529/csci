@@ -1,0 +1,21 @@
+<included>
+    <appender name="AUDIT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <prettyPrint>true</prettyPrint>
+            <fieldNames>
+                <timestamp>[ignore]</timestamp>
+                <message>[ignore]</message>
+                <level>[ignore]</level>
+                <levelValue>[ignore]</levelValue>
+                <logger>[ignore]</logger>
+                <thread>[ignore]</thread>
+            </fieldNames>
+            <includeMdc>false</includeMdc>
+            <includeStructuredArguments>true</includeStructuredArguments>
+            <jsonFactoryDecorator class="com.swift.csci.main.java.csci.audit.AuditLogDecorator"/>
+        </encoder>
+    </appender>
+    <logger name="cics-audit" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT"/>
+    </logger>
+</included>

@@ -1,0 +1,75 @@
+/* NEW */
+:root {
+  --primary: #33FFD1;
+  --primary-hover: #6DDCC3;
+  --secondary: #fff;
+  --tertiary: #f2f2f2;
+  --quaternary: #333d3e;
+  --quinary: #333d3e;
+  --white: #fff;
+  --background: #f4f4f4;
+  --black: #000;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: "Aeonik Pro","Helvetica Neue",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol" !important;
+}
+
+.btn.sw-btn.disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
+  background-color: #f4f4f4;
+}
+
+.sw-navbar {
+  background-color: var(--primary);
+  color: var(--black);
+  padding: 0.75rem 0;
+  box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15), inset 0 -1px 0 rgba(255,255,255,0.15);
+  z-index: 1999;
+}
+
+.sw-sidebar {
+  background-color: var(--primary);
+  z-index: 999;
+}
+
+.table.sw-table {
+  --bs-table-bg: var(--white);
+}
+
+.sw-label {
+  text-align: start;
+}
+
+.sw-max-cell-width {
+  max-width: 175px;
+}
+
+.sw-hero-banner {
+  background: linear-gradient(140deg, var(--primary) 0%, rgba(90, 128, 226, 0.00) 100%), var(--background);
+  height: 100px;
+}
+
+.form-label {
+  font-weight: bold;
+}
+
+.form-control::placeholder { /* Chrome, Firefox, Opera, Safari 10.1+ */
+  color: lightgray !important;
+  opacity: 1; /* Firefox */
+}
+
+@media (min-width: 576px) {
+
+  .sw-label {
+    text-align: end;
+  }
+
+}
+
+.table tr {
+  cursor: pointer;
+}
