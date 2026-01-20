@@ -8,6 +8,7 @@ import {Button, Modal} from "react-bootstrap";
 import Alert from 'react-bootstrap/Alert';
 import { useCookies } from 'react-cookie';
 import restController from "../utils/useRestController";
+import { validateInspectorForm, validateInspectorId, validateResourcePattern, /* validateResourceType, */ isFullWildcard } from '../services/inspectorValidation';
 
 export default function CreateEntry({ userProfile }) {
   const navigate = useNavigate();
@@ -45,7 +46,7 @@ export default function CreateEntry({ userProfile }) {
 
   const session = localStorage.getItem("session");
 
-  const apiHostName = "https://csci.swift.com"
+  const apiHostName = "https://csci.com"
   const PRODUCTNAMES = ["Security Hub", "Inspector", "Config", "IAM Access Analyzer", "Health", "GuardDuty"]
 
   const navigateHome = (event) => {
@@ -54,9 +55,24 @@ export default function CreateEntry({ userProfile }) {
   };
 
   const validateInputs = () => {
-
+    // Use Inspector-specific validation when Inspector is selected
+    if (isInspector) {
+      const result = validateInspectorForm({
+        id: id || '',
+        resourcePattern: resourcePattern || '',
+        resourceType: resourceType || ''
+      });
+      
+      if (!result.valid) {
+        const firstError = Object.values(result.errors)[0];
+        setErrorMessage(firstError);
+        return false;
+      }
+      setErrorMessage('');
+      return true;
+    }
+    
     return validateResourceInputs();
-
   }
 
   const validateResourceInputs = () => {
@@ -96,9 +112,21 @@ export default function CreateEntry({ userProfile }) {
   const handleIdInputChange = (event) => {
     const iValue = event.target.value;
     setId(iValue);
+    
+    // Inspector validation
+    if (isInspector && iValue.length > 0) {
+      const result = validateInspectorId(iValue);
+      if (!result.valid) {
+        setErrorMessage(result.message);
+      } else {
+        setErrorMessage('');
+      }
+      return;
+    }
+    
+    // original val
     if (!isInspector && iValue.length > 0) {
       const hasInvalidChars = /[\\*^$+?]/.test(iValue);
-      // Validate the input value for wild card characters
       if (hasInvalidChars) {
         setErrorMessage('Security Control Id should not have wild characters');
       }
@@ -106,22 +134,48 @@ export default function CreateEntry({ userProfile }) {
         setErrorMessage('');
       }
     }
-
   };
 
   const handleResourceInputChange = (event) => {
     const iValue = event.target.value;
     setResourcePattern(iValue);
-    const hasInvalidChars = /[\\*^$+?]/.test(iValue);
-
-    // Validate the input value for wild card characters
-    if (isInspector && hasInvalidChars && iValue.length > 0){
-      setErrorMessage('Input cannot be empty or contain a wildcard (\\\\, *, $, +, ?)\') when ProductName is Inspector');
+    
+    // Inspector (wildcards depend on ID)
+    if (isInspector && iValue.length > 0) {
+      const isIdWildcard = isFullWildcard(id);
+      const result = validateResourcePattern(iValue, isIdWildcard);
+      if (!result.valid) {
+        setErrorMessage(result.message);
+      } else {
+        setErrorMessage('');
+      }
+      return;
     }
-    else {
-      setErrorMessage('');
-    }
+    
+    // Non-Inspector: original behavior (no validation - wildcards allowed)
+    // const hasInvalidChars = /[\\*^$+?]/.test(iValue);
+    // if (!isInspector && hasInvalidChars && iValue.length > 0) {
+    //   setErrorMessage('Input cannot contain wildcard characters');
+    // } else {
+    //   setErrorMessage('');
+    // }
   };
+
+
+  const handleResourceTypeChange = (event) => {
+    const iValue = event.target.value.trim();
+    setResourceType(iValue);
+    
+    // if (isInspector && iValue.length > 0) {
+    //   const result = validateResourceType(iValue);
+    //   if (!result.valid) {
+    //     setErrorMessage(result.message);
+    //   } else {
+    //     setErrorMessage('');
+    //   }
+    // }
+  };
+
   const handleDropdownChange = (event) => {
     const iValue = event.target.value;
     setProductName(iValue);
@@ -311,7 +365,7 @@ export default function CreateEntry({ userProfile }) {
                                       name="resource_type"
                                       maxLength={1024}
                                       placeholder="AwsEcrContainerImage"
-                                      onChange={(event) => setResourceType(event.target.value.trim())}
+                                      onChange={handleResourceTypeChange}
                                       value={resourceType}
                         />
 
