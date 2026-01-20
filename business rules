@@ -1,0 +1,105 @@
+SECTION 1: BUSINESS RULES
+Rule #	Rule	Description
+R1	ID is REQUIRED	Cannot be empty
+R2	ID can be specific or * only	CVE-2025-66418, CWE-409, CWE-117,93, or *
+R3	ID CANNOT have partial wildcards	CVE-*, CVE-2025-*, CWE-* are BLOCKED
+R4	At least ONE of ResourcePattern OR ResourceType	Both cannot be empty
+R5	When ID is specific → ResourcePattern CAN have wildcards	CVE-2025-66418 + arn:aws:lambda:*:*:function:sw-oasis-esf-*:* ✅
+R6	When ID is * → ResourcePattern CANNOT have wildcards	Must be exact ARN
+R7	When ID is * → ResourceType can substitute for ResourcePattern	* + AwsLambdaFunction ✅
+R8	ResourceType CANNOT have wildcards (for Inspector)	AwsLambda* is BLOCKED
+
+SECTION 2: COMPLETE DECISION MATRIX
+TABLE A: All Valid Combinations
+#	ID	ResourcePattern	ResourceType	Valid?	Reason
+1	CVE-2025-66418	arn:aws:lambda:*:*:function:sw-oasis-esf-*:*	Empty	✅	Specific ID + Pattern with wildcard
+2	CWE-117,93	arn:aws:lambda:*:*:function:sw-oasis-esf-*:*	Empty	✅	Specific CWE + Pattern with wildcard
+3	CWE-409	arn:aws:lambda:*:*:function:AWS_Control_Tower_Upgrade-*:*	Empty	✅	Specific CWE + Pattern with wildcard
+4	CVE-2025-66418	arn:aws:lambda:ca-central-1:123:function:exact:$LATEST	Empty	✅	Specific ID + Exact ARN
+5	CVE-2025-66418	Empty	AwsLambdaFunction	✅	Specific ID + ResourceType only
+6	CVE-2025-66418	arn:aws:lambda:*:*:function:sw-oasis-esf-*:*	AwsLambdaFunction	✅	Specific ID + Both fields
+7	*	arn:aws:lambda:ca-central-1:123:function:exact:$LATEST	Empty	✅	Full wildcard + Exact ARN
+8	*	Empty	AwsLambdaFunction	✅	Full wildcard + ResourceType only
+9	*	arn:aws:lambda:ca-central-1:123:function:exact:$LATEST	AwsLambdaFunction	✅	Full wildcard + Exact ARN + Type
+
+
+ABLE B: All INVALID Combinations
+#	ID	ResourcePattern	ResourceType	Valid?	Reason
+10	Empty	Any	Any	❌	ID is required
+11	CVE-2025-*	Any	Any	❌	Partial wildcard in ID
+12	CVE-*	Any	Any	❌	Partial wildcard in ID
+13	CWE-*	Any	Any	❌	Partial wildcard in ID
+14	*	arn:aws:lambda:*:*:function:sw-oasis-esf-*:*	Empty	❌	Full wildcard ID + Pattern wildcard
+15	*	arn:aws:lambda:*:*:function:*:*	Empty	❌	Full wildcard ID + Pattern wildcard
+16	*	Empty	AwsLambda*	❌	ResourceType cannot have wildcard
+17	CVE-2025-66418	Empty	AwsLambda*	❌	ResourceType cannot have wildcard
+18	CVE-2025-66418	Empty	Empty	❌	Both ResourcePattern and ResourceType empty
+19	*	Empty	Empty	❌	Both ResourcePattern and ResourceType empty
+20	CVE-2025@66418	Any	Any	❌	Invalid characters in ID
+21	random-text	Any	Any	❌	Invalid ID format
+
+
+
+
+
+SECTION 3: UI LAYER ANALYSIS
+Current Behavior (Before Change)
+Field	Current Validation	File:Line
+ID	Wildcards ALLOWED for Inspector	CreateEntry.js:96-110
+ResourcePattern	Wildcards BLOCKED for Inspector	CreateEntry.js:112-124
+ResourceType	No wildcard validation	CreateEntry.js:314
+Required Changes for UI
+Change #	Field	Current	New Behavior
+U1	ID	Allows CVE-*, CVE-2025-*	BLOCK partial wildcards, allow only * or exact CVE/CWE
+U2	ID	No format validation	ADD CVE/CWE format validation (CVE-YYYY-NNNNN, CWE-NNN)
+U3	ID	No special char check	ADD block @#$%&! etc.
+U4	ResourcePattern	Always blocks wildcards	ALLOW wildcards when ID is specific (not *)
+U5	ResourcePattern	Always blocks wildcards	BLOCK wildcards when ID is *
+U6	ResourceType	No validation	BLOCK wildcards always
+U7	Cross-field	Not implemented	VALIDATE at least one of ResourcePattern OR ResourceType
+
+SECTION 3: UI LAYER ANALYSIS
+Current Behavior (Before Change)
+Field	Current Validation	File:Line
+ID	Wildcards ALLOWED for Inspector	CreateEntry.js:96-110
+ResourcePattern	Wildcards BLOCKED for Inspector	CreateEntry.js:112-124
+ResourceType	No wildcard validation	CreateEntry.js:314
+
+Required Changes for UI
+Change #	Field	Current	New Behavior
+U1	ID	Allows CVE-*, CVE-2025-*	BLOCK partial wildcards, allow only * or exact CVE/CWE
+U2	ID	No format validation	ADD CVE/CWE format validation (CVE-YYYY-NNNNN, CWE-NNN)
+U3	ID	No special char check	ADD block @#$%&! etc.
+U4	ResourcePattern	Always blocks wildcards	ALLOW wildcards when ID is specific (not *)
+U5	ResourcePattern	Always blocks wildcards	BLOCK wildcards when ID is *
+U6	ResourceType	No validation	BLOCK wildcards always
+U7	Cross-field	Not implemented	VALIDATE at least one of ResourcePattern OR ResourceType
+
+
+
+UI Validation Flow (New)
+
+
+
+1. User selects "Inspector" from Product dropdown
+   ↓
+2. User enters ID
+   ├── If empty → ERROR: "Vulnerability ID is required"
+   ├── If contains partial wildcard (CVE-*, etc.) → ERROR: "Partial wildcards not allowed"
+   ├── If contains invalid chars (@#$%) → ERROR: "Invalid characters"
+   ├── If not valid CVE/CWE/(*) format → ERROR: "Invalid format"
+   └── If valid → PASS (store isFullWildcard flag)
+   ↓
+3. User enters ResourcePattern
+   ├── If ID is "*" AND ResourcePattern has wildcards → ERROR: "Exact ARN required when ID is *"
+   ├── If ID is specific AND ResourcePattern has wildcards → PASS ✅ (NEW BEHAVIOR)
+   └── If exact ARN → PASS
+   ↓
+4. User enters ResourceType
+   ├── If contains wildcards → ERROR: "Wildcards not allowed in ResourceType"
+   └── If exact type → PASS
+   ↓
+5. On Submit
+   ├── If both ResourcePattern AND ResourceType empty → ERROR: "Provide at least one"
+   └── If at least one provided → SUBMIT
+
