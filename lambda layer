@@ -1,0 +1,66 @@
+SECTION 5: LAMBDA LAYER ANALYSIS
+Current Behavior (Before Change)
+Method	Current Logic	File:Line
+_validate_rule()	Blocks wildcards in resource_pattern	template:1304-1306
+_validate_rule()	Blocks wildcards in resource_type	template:1307-1309
+_validate_rule()	Requires resource_pattern OR resource_type	template:1310-1312
+matches()	ID partial matching with strip("*")	template:1337-1341
+_match_resource_id_type()	Uses re.search() for matching	template:1354-1370
+
+
+
+equired Changes for Lambda
+Change #	Method	Current	New Behavior
+L1	_validate_rule()	Blocks all wildcards in resource_pattern	ALLOW wildcards when ID is specific
+L2	_validate_rule()	Blocks all wildcards in resource_pattern	BLOCK wildcards when ID is *
+L3	_validate_rule()	No ID format validation	ADD ID format validation
+L4	_validate_rule()	No partial wildcard check	BLOCK partial wildcards in ID
+L5	_validate_rule()	Allows wildcards in resource_type	BLOCK wildcards in resource_type always
+L6	matches()	Uses strip("*") for ID matching	REMOVE - only exact match or * for all
+
+Lambda Validation Flow (New)
+
+
+
+1. Load rules from DynamoDB
+   ↓
+2. For each rule where product_name == "Inspector":
+   ↓
+3. Validate ID
+   ├── If empty → valid_rule = False, log error
+   ├── If partial wildcard (contains * but != "*") → valid_rule = False
+   └── If valid format or "*" → Continue
+   ↓
+4. Validate ResourcePattern + ID combination
+   ├── If ID == "*" AND resource_pattern contains "*" → valid_rule = False
+   ├── If ID is specific AND resource_pattern contains "*" → valid_rule = True ✅ (NEW)
+   └── If exact ARN → valid_rule = True
+   ↓
+5. Validate ResourceType
+   ├── If contains "*" → valid_rule = False
+   └── Else → Continue
+   ↓
+6. Cross-validate
+   ├── If both resource_pattern AND resource_type empty → valid_rule = False
+   └── Else → valid_rule = True
+   ↓
+7. Store rule in self.rules if valid_rule == True
+
+
+
+
+Lambda Matching Logic Update
+Current	New
+id_prefix = re.compile(r'^' + self.id.strip("*"))	REMOVE this logic
+Partial ID matching supported	ONLY exact ID match OR * matches all
+
+New Matching Flow:
+
+
+
+1. If rule.id == "*":
+   → Match ALL findings (any CVE/CWE)
+2. If rule.id == finding.id:
+   → Exact match
+3. Else:
+   → No match
