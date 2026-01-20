@@ -1,0 +1,65 @@
+SECTION 4: JAVA LAYER ANALYSIS
+Current Behavior (Before Change)
+Field	Current Validation	File:Line
+ID	No format validation	Controller.java - None
+ID	No wildcard validation	Controller.java - None
+ResourcePattern	No wildcard validation	Controller.java - None
+ResourceType	No wildcard validation	Controller.java - None
+productName	Sets findingType to "Vulnerabilities"	Controller.java:250-251
+
+
+
+
+Required Changes for Java
+Change #	Field	Current	New Behavior
+J1	ID	No validation	ADD format validation (CVE-YYYY-NNNNN, CWE-NNN, or *)
+J2	ID	No validation	BLOCK partial wildcards (CVE-*, CVE-2025-*)
+J3	ID	No validation	BLOCK invalid characters (@#$%&!)
+J4	ResourcePattern + ID	No cross-validation	BLOCK wildcards in ResourcePattern when ID is *
+J5	ResourcePattern + ID	No cross-validation	ALLOW wildcards in ResourcePattern when ID is specific
+J6	ResourceType	No validation	BLOCK wildcards always
+J7	Cross-field	No validation	REQUIRE at least one of ResourcePattern OR ResourceType
+
+Java Validation Flow (New)
+
+
+
+1. Receive POST /createItem request
+   ↓
+2. Check productName == "Inspector"
+   ↓
+3. Validate ID
+   ├── If null/empty → 400 BAD_REQUEST: "Vulnerability ID is required"
+   ├── If contains partial wildcard → 400 BAD_REQUEST: "Partial wildcards not allowed"
+   ├── If contains invalid chars → 400 BAD_REQUEST: "Invalid characters in ID"
+   ├── If invalid format → 400 BAD_REQUEST: "Invalid ID format"
+   └── If valid → Continue
+   ↓
+4. Validate ResourcePattern
+   ├── If ID == "*" AND ResourcePattern contains "*" → 400 BAD_REQUEST
+   └── Else → Continue
+   ↓
+5. Validate ResourceType
+   ├── If contains "*" → 400 BAD_REQUEST: "Wildcards not allowed in ResourceType"
+   └── Else → Continue
+   ↓
+6. Cross-validate
+   ├── If both ResourcePattern AND ResourceType empty → 400 BAD_REQUEST
+   └── Else → Continue
+   ↓
+7. Set findingType = "Vulnerabilities"
+   ↓
+8. Save to DynamoDB → 200 OK
+
+
+
+HTTP Response Codes
+Validation Failure	Response
+ID empty	400 BAD_REQUEST: "Vulnerability ID is required"
+ID partial wildcard	400 BAD_REQUEST: "Partial wildcards (CVE-*, CWE-*) not allowed in ID"
+ID invalid chars	400 BAD_REQUEST: "ID contains invalid characters"
+ID invalid format	400 BAD_REQUEST: "Invalid ID format. Use CVE-YYYY-NNNNN, CWE-NNN, or *"
+ID=* + ResourcePattern has *	400 BAD_REQUEST: "ResourcePattern must be exact ARN when ID is *"
+ResourceType has *	400 BAD_REQUEST: "Wildcards not allowed in ResourceType"
+Both Resource fields empty	400 BAD_REQUEST: "Provide ResourcePattern or ResourceType"
+All valid	200 OK: "Created item"
