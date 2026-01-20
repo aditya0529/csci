@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import static com.swift.csci.audit.Action.*;
 import static com.swift.csci.audit.AuditUtils.*;
 import java.util.*;
+import com.swift.csci.utils.InspectorValidationUtils;
 
 // Documentation of REST-related annotations:
 // https://docs.spring.io/spring-framework/docs/current/javadoc-api/org/springframework/web/bind/annotation/package-summary.html
@@ -192,6 +193,15 @@ public class Controller {
                 LOGGER.error("A due date (due_date field) is required.");
                 return new ResponseEntity<>("Cannot update item which is missing a due date.", HttpStatus.BAD_REQUEST);
             }
+
+            // Inspector-specific validation (J1-J7) for update
+            if(InspectorValidationUtils.isInspector(user_input.getProductName())) {
+                InspectorValidationUtils.ValidationResult validationResult = InspectorValidationUtils.validate(user_input);
+                if(!validationResult.isValid()) {
+                    return new ResponseEntity<>(validationResult.getErrorMessage(), HttpStatus.BAD_REQUEST);
+                }
+            }
+
             SuppressionData item = dynamoDbRepository.getItem(user_input.getId(), user_input.getSerId());
             if(item != null)
             {
@@ -237,6 +247,14 @@ public class Controller {
             {
                 LOGGER.error("A ProductName (product_name field) is required.");
                 return new ResponseEntity<>("Cannot create item which is missing a ProductName.", HttpStatus.BAD_REQUEST);
+            }
+
+            // Inspector-specific validation (J1-J7)
+            if(InspectorValidationUtils.isInspector(user_input.getProductName())) {
+                InspectorValidationUtils.ValidationResult validationResult = InspectorValidationUtils.validate(user_input);
+                if(!validationResult.isValid()) {
+                    return new ResponseEntity<>(validationResult.getErrorMessage(), HttpStatus.BAD_REQUEST);
+                }
             }
 
             SuppressionData item = dynamoDbRepository.getItem(user_input.getId(), user_input.getSerId());
