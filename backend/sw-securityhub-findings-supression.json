@@ -1,0 +1,106 @@
+[
+  {
+    "ParameterKey": "pSuppressionRuleDynamodbTableName",
+    "ParameterValue": "sw-securityhub-suppression-ser-db-v2-main-aws"
+  },
+  {
+    "ParameterKey": "pTagKey1",
+    "ParameterValue": "landing-zone"
+  },
+  {
+    "ParameterKey": "pTagValue1",
+    "ParameterValue": "managed-by-landing-zone"
+  },
+  {
+    "ParameterKey": "pTagApplicationKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/application]"
+  },
+  {
+    "ParameterKey": "pTagApplicationValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/application]"
+  },
+  {
+    "ParameterKey": "pTagOwnerKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/owner]"
+  },
+  {
+    "ParameterKey": "pTagOwnerValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/owner]"
+  },
+  {
+    "ParameterKey": "pTagTechnicalContactKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/technical_contact]"
+  },
+  {
+    "ParameterKey": "pTagTechnicalContactValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/technical_contact]"
+  },
+  {
+    "ParameterKey": "pTagProductKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/product]"
+  },
+  {
+    "ParameterKey": "pTagProductValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/product]"
+  },
+  {
+    "ParameterKey": "pTagEnvKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/environment]"
+  },
+  {
+    "ParameterKey": "pTagEnvValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/prod_env]"
+  },
+  {
+    "ParameterKey": "pTagCreatedByKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/createdby]"
+  },
+  {
+    "ParameterKey": "pTagCreatedByValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/createdby]"
+  },
+  {
+    "ParameterKey": "pTagCostCenterIdKey",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/key/costcenterid]"
+  },
+  {
+    "ParameterKey": "pTagCostCenterIdValue",
+    "ParameterValue": "$[alfred_ssm_/org/landingzone/tag/value/costcenterid]"
+  },
+  {
+    "ParameterKey": "pSuppressionRuleDynamoDbStreamArn",
+    "ParameterValue": "$[alfred_ssm_/sw/sechubsuppressionruledynamodb/stream_arn]"
+  },
+  {
+    "ParameterKey": "pLambdaName",
+    "ParameterValue": "sw-security-hub-batch-update-suppression-lambda-main-aws"
+  },
+  {
+    "ParameterKey": "pLambdaExecutionRoleName",
+    "ParameterValue": "sw-security-hub-batch-update-suppression-role-main-aws"
+  },
+  {
+    "ParameterKey": "pResetLambdaName",
+    "ParameterValue": "sw-security-hub-batch-update-reset-suppression-lambda"
+  },
+  {
+    "ParameterKey": "pResetLambdaExecutionRoleName",
+    "ParameterValue": "sw-security-hub-batch-update-reset-suppression-role"
+  },
+  {
+    "ParameterKey": "pSuppressionEngineCacheDBName",
+    "ParameterValue": "sw-security-hub-suppression-engine-cache-main-aws"
+  },
+  {
+    "ParameterKey": "pSuppressionEngineLambdaName",
+    "ParameterValue": "sw-security-hub-batch-update-suppression-lambda-v2-main-aws"
+  },
+  {
+    "ParameterKey": "pSupportedRegionsSsmParameterName",
+    "ParameterValue": "/security-tools/suppression-engine/supported-regions"
+  },
+  {
+    "ParameterKey": "pSupportedRegions",
+    "ParameterValue": "eu-central-1,us-east-1,eu-west-1,ap-southeast-2,us-east-2,ap-southeast-1,us-west-2,eu-west-2,ap-south-1,eu-west-3,ca-central-1,eu-north-1"
+  }
+]
