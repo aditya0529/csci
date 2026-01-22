@@ -1301,12 +1301,19 @@ Resources:
 
             def _validate_rule(self):
               if self.product_name == "Inspector":
-                if len(self.resource_pattern) > 0 and re.search(self.resource_pattern, "*"):
-                  logger.error(f"Suppression rule (Id - {self.id}) has wild card(*) in resource_pattern - {self.resource_pattern}")
-                  return False
-                if len(self.resource_type) > 0 and re.search(self.resource_type, "*"):
-                  logger.error(f"Suppression rule (Id - {self.id}) has wild card(*) resource_type - {self.resource_type}")
-                  return False
+                # ResourcePattern + ID cross-validation
+                trimmed_id = self.id.strip() if self.id else ""
+                if len(self.resource_pattern) > 0:
+                  # L2: Block wildcards in resource_pattern when ID is *
+                  if trimmed_id == "*" and "*" in self.resource_pattern:
+                    logger.error(f"Suppression rule (Id - {self.id}) has wildcard in resource_pattern when ID is * - {self.resource_pattern}")
+                    return False
+                  # L1: Allow wildcards in resource_pattern when ID is specific - PASS
+                
+                # L5: Block wildcards in resource_type ALWAYS (original behavior)
+                if len(self.resource_type) > 0 and "*" in self.resource_type:
+                  logger.error(f"Suppression rule (Id - {self.id}) has wildcard in resource_type - {self.resource_type}")
+                  return False                
                 if len(self.resource_pattern) == 0 and len(self.resource_type) == 0:
                   logger.error(f"Please provide both or one of ResourceType or ResourcePattern or Id")
                   return False

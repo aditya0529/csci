@@ -1301,12 +1301,6 @@ Resources:
 
             def _validate_rule(self):
               if self.product_name == "Inspector":
-                # L3-L4: Validate Inspector ID
-                id_valid, id_error = self._validate_inspector_id()
-                if not id_valid:
-                  logger.error(f"Suppression rule (Id - {self.id}) validation failed: {id_error}")
-                  return False
-                
                 # L1-L2: ResourcePattern + ID cross-validation
                 trimmed_id = self.id.strip() if self.id else ""
                 if len(self.resource_pattern) > 0:
@@ -1328,41 +1322,6 @@ Resources:
               elif len(self.resource_pattern) == 0 and len(self.resource_type) == 0:
                   return False
               return True
-            
-            def _validate_inspector_id(self):
-              """L3-L4: Validate Inspector ID format and block partial wildcards"""
-              import re as re_module
-              CVE_PATTERN = re_module.compile(r'^CVE-\d{4}-\d{4,7}$')
-              CWE_PATTERN = re_module.compile(r'^CWE-\d{1,4}(,\d{1,4})*$')
-              INVALID_ID_CHARS = re_module.compile(r'[^a-zA-Z0-9\-*,]')
-              
-              if not self.id or not self.id.strip():
-                return False, "Vulnerability ID is required"
-              
-              trimmed_id = self.id.strip()
-              
-              # L3: Check for invalid characters
-              if INVALID_ID_CHARS.search(trimmed_id):
-                return False, f"ID contains invalid characters: {trimmed_id}"
-              
-              # L4: Block partial wildcards (contains * but is not exactly *)
-              if "*" in trimmed_id and trimmed_id != "*":
-                return False, f"Partial wildcards not allowed in ID: {trimmed_id}"
-              
-              # L3: Validate ID format (CVE-YYYY-NNNNN, CWE-NNN, or *)
-              if trimmed_id != "*":
-                is_valid_cve = CVE_PATTERN.match(trimmed_id)
-                is_valid_cwe = CWE_PATTERN.match(trimmed_id)
-                
-                if not is_valid_cve and not is_valid_cwe:
-                  if trimmed_id.upper().startswith("CVE"):
-                    return False, f"Invalid CVE format: {trimmed_id}. Use CVE-YYYY-NNNNN"
-                  elif trimmed_id.upper().startswith("CWE"):
-                    return False, f"Invalid CWE format: {trimmed_id}. Use CWE-NNN"
-                  else:
-                    return False, f"Invalid ID format: {trimmed_id}. Use CVE-YYYY-NNNNN or CWE-NNN"
-              
-              return True, ""
 
             def _parse_due_date(self, due_date: Optional[str]) -> Optional[datetime]:
               if not due_date:
@@ -1385,12 +1344,10 @@ Resources:
                 logger.debug(f"Suppression rule has matched ID: {finding.id} and Rule Id - {self.id}")
               else:
                 if self.product_name == "Inspector":
-                  # L6: Only exact match OR * matches all (removed partial matching with strip("*"))
-                  trimmed_rule_id = self.id.strip() if self.id else ""
-                  if trimmed_rule_id == "*":
+                  id_prefix = re.compile(r'^' + self.id.strip("*"))
+                  if id_prefix.search(finding.id):
                     id_match = True
-                    logger.debug(f"Suppression rule wildcard (*) matches all - Finding ID: {finding.id}")
-                  # Exact match already handled above, no partial matching
+                    logger.debug(f"Suppression rule has matched ID: {finding.id} and Vulnerability Id - {self.id}")
               is_resource_id_type_match = self._match_resource_id_type(finding)
               if id_match and \
                       is_resource_id_type_match and \
