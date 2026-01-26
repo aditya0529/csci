@@ -13,8 +13,6 @@ public class InspectorValidationUtils {
     private static final Logger LOGGER = LoggerFactory.getLogger(InspectorValidationUtils.class);
 
     // Validation patterns
-    private static final Pattern CVE_PATTERN = Pattern.compile("^CVE-\\d{4}-\\d{4,7}$");
-    private static final Pattern CWE_PATTERN = Pattern.compile("^CWE-\\d{1,4}(,\\d{1,4})*$");
     private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9\\-*,]");
     private static final String WILDCARD = "*";
 
@@ -77,17 +75,6 @@ public class InspectorValidationUtils {
             return ValidationResult.error("Partial wildcards (CVE-*, CWE-*) not allowed in ID. Use exact CVE/CWE or * only.");
         }
 
-        // J1: Validate ID format (CVE-YYYY-NNNNN, CWE-NNN, or *)
-        if (!trimmedId.equals(WILDCARD)) {
-            if (trimmedId.startsWith("CVE-") && !CVE_PATTERN.matcher(trimmedId).matches()) {
-                LOGGER.error("Inspector validation failed: Invalid CVE format - " + trimmedId);
-                return ValidationResult.error("Invalid CVE format. Use CVE-YYYY-NNNNN (e.g., CVE-2025-12345)");
-            }
-            if (trimmedId.startsWith("CWE-") && !CWE_PATTERN.matcher(trimmedId).matches()) {
-                LOGGER.error("Inspector validation failed: Invalid CWE format - " + trimmedId);
-                return ValidationResult.error("Invalid CWE format. Use CWE-NNN (e.g., CWE-409)");
-            }
-        }
 
         // J4-J5: ResourcePattern + ID cross-validation
         if (resourcePattern != null && !resourcePattern.trim().isEmpty()) {

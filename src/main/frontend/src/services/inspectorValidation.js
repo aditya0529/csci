@@ -9,8 +9,6 @@
  */
 
 // Patterns
-const CVE_PATTERN = /^CVE-\d{4}-\d{4,7}$/;  // e.g. CVE-2025-66418
-const CWE_PATTERN = /^CWE-\d{1,4}(,\d{1,4})*$/;  // e.g. CWE-409, CWE-117,93
 const HAS_WILDCARD = /\*/;
 
 // ID Validation
@@ -25,18 +23,8 @@ export const validateInspectorId = (id) => {
     return { valid: true, isFullWildcard: true };
   }
   
-  if (trimmed.startsWith('CVE-') && CVE_PATTERN.test(trimmed)) {
-    return { valid: true, isFullWildcard: false };
-  }
-  
-  if (trimmed.startsWith('CWE-') && CWE_PATTERN.test(trimmed)) {
-    return { valid: true, isFullWildcard: false };
-  }
-  
-  return { 
-    valid: false, 
-    message: 'Invalid format. Use CVE-YYYY-NNNNN, CWE-NNN, or "*"' 
-  };
+  // Allow any non-empty ID format (removed CVE/CWE pattern validation)
+  return { valid: true, isFullWildcard: false };
 };
 
 // ResourcePattern Validation
