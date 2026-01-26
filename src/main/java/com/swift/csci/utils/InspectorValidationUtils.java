@@ -6,20 +6,22 @@ import org.slf4j.LoggerFactory;
 
 import java.util.regex.Pattern;
 
-/**
- * Utility class for Inspector-specific validation logic (J1-J7)
- */
-public class InspectorValidationUtils {
+public final class InspectorValidationUtils {
     private static final Logger LOGGER = LoggerFactory.getLogger(InspectorValidationUtils.class);
 
     // Validation patterns
     private static final Pattern INVALID_ID_CHARS = Pattern.compile("[^a-zA-Z0-9\\-*,]");
     private static final String WILDCARD = "*";
 
+    // Private constructor to prevent instantiation
+    private InspectorValidationUtils() {
+        throw new UnsupportedOperationException("Utility class cannot be instantiated");
+    }
+
     /**
      * Validation result containing status and error message
      */
-    public static class ValidationResult {
+    public static final class ValidationResult {
         private final boolean valid;
         private final String errorMessage;
 
@@ -45,57 +47,46 @@ public class InspectorValidationUtils {
         }
     }
 
-    /**
-     * Validates Inspector-specific input fields (J1-J7)
-     * @param input The suppression data to validate
-     * @return ValidationResult with status and error message if invalid
-     */
     public static ValidationResult validate(SuppressionData input) {
-        String id = input.getId();
-        String resourcePattern = input.getResourcePattern();
-        String resourceType = input.getResourceType();
 
-        // J1-J3: ID Validation
-        if (id == null || id.trim().isEmpty()) {
+        String id = input.getId() != null ? input.getId().strip() : "";
+        String resourcePattern = input.getResourcePattern() != null ? input.getResourcePattern().strip() : "";
+        String resourceType = input.getResourceType() != null ? input.getResourceType().strip() : "";
+
+        // ID Required
+        if (id.isBlank()) {
             LOGGER.error("Inspector validation failed: Vulnerability ID is required");
             return ValidationResult.error("Vulnerability ID is required");
         }
 
-        String trimmedId = id.trim();
-
-        // J3: Block invalid characters
-        if (INVALID_ID_CHARS.matcher(trimmedId).find()) {
-            LOGGER.error("Inspector validation failed: ID contains invalid characters - " + trimmedId);
+        // Invalid characters check
+        if (INVALID_ID_CHARS.matcher(id).find()) {
+            LOGGER.error("Inspector validation failed: ID contains invalid characters - {}", id);
             return ValidationResult.error("ID contains invalid characters. Only alphanumeric, hyphens, commas, and asterisk are allowed.");
         }
 
-        // J2: Block partial wildcards (contains * but is not exactly *)
-        if (trimmedId.contains(WILDCARD) && !trimmedId.equals(WILDCARD)) {
-            LOGGER.error("Inspector validation failed: Partial wildcards not allowed in ID - " + trimmedId);
+        // Partial wildcards not allowed (e.g., CVE-*, CWE-*)
+        if (id.contains(WILDCARD) && !id.equals(WILDCARD)) {
+            LOGGER.error("Inspector validation failed: Partial wildcards not allowed in ID - {}", id);
             return ValidationResult.error("Partial wildcards (CVE-*, CWE-*) not allowed in ID. Use exact CVE/CWE or * only.");
         }
 
-
-        // J4-J5: ResourcePattern + ID cross-validation
-        if (resourcePattern != null && !resourcePattern.trim().isEmpty()) {
-            if (trimmedId.equals(WILDCARD) && resourcePattern.contains(WILDCARD)) {
-                LOGGER.error("Inspector validation failed: ResourcePattern cannot have wildcards when ID is * - " + resourcePattern);
-                return ValidationResult.error("ResourcePattern must be exact ARN when ID is *. Wildcards not allowed.");
-            }
-            // J5: Allow wildcards in ResourcePattern when ID is specific - no action needed
+        // ResourcePattern + ID cross-validation
+        boolean isWildcardId = id.equals(WILDCARD);
+        boolean hasResourcePattern = !resourcePattern.isBlank();
+        if (hasResourcePattern && isWildcardId && resourcePattern.contains(WILDCARD)) {
+            LOGGER.error("Inspector validation failed: ResourcePattern cannot have wildcards when ID is * - {}", resourcePattern);
+            return ValidationResult.error("ResourcePattern must be exact ARN when ID is *. Wildcards not allowed.");
         }
 
-        // J6: ResourceType wildcard validation
-        if (resourceType != null && !resourceType.trim().isEmpty()) {
-            if (resourceType.contains(WILDCARD)) {
-                LOGGER.error("Inspector validation failed: Wildcards not allowed in ResourceType - " + resourceType);
-                return ValidationResult.error("Wildcards not allowed in ResourceType");
-            }
+        // ResourceType wildcard validation
+        boolean hasResourceType = !resourceType.isBlank();
+        if (hasResourceType && resourceType.contains(WILDCARD)) {
+            LOGGER.error("Inspector validation failed: Wildcards not allowed in ResourceType - {}", resourceType);
+            return ValidationResult.error("Wildcards not allowed in ResourceType");
         }
 
-        // J7: Cross-field validation (at least one resource field required)
-        boolean hasResourcePattern = resourcePattern != null && !resourcePattern.trim().isEmpty();
-        boolean hasResourceType = resourceType != null && !resourceType.trim().isEmpty();
+        // At least one resource field required
         if (!hasResourcePattern && !hasResourceType) {
             LOGGER.error("Inspector validation failed: ResourcePattern or ResourceType is required");
             return ValidationResult.error("Provide ResourcePattern or ResourceType");
