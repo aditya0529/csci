@@ -12,6 +12,14 @@ Parameters:
     Default: 'DEBUG'
     AllowedValues: ['DEBUG', 'INFO', 'WARNING', 'ERROR']
     Description: 'Lambda logging level'
+    
+  pExistingRoleArn:
+    Type: String
+    Default: ''
+    Description: 'Optional: ARN of existing IAM role to use instead of creating new one'
+
+Conditions:
+  CreateNewRole: !Equals [!Ref pExistingRoleArn, '']
 
 Resources:
   # DynamoDB Tables
@@ -54,9 +62,10 @@ Resources:
         - Key: Purpose
           Value: 'SecurityHub Suppression Cache'
 
-  # IAM Role for Lambda
+  # IAM Role for Lambda (only create if no existing role provided)
   rSuppressionEngineRole:
     Type: AWS::IAM::Role
+    Condition: CreateNewRole
     Properties:
       RoleName: !Sub 'SuppressionEngine-${pEnvironment}-Role'
       AssumeRolePolicyDocument:
@@ -105,7 +114,7 @@ Resources:
       FunctionName: !Sub 'suppression-engine-v2-${pEnvironment}'
       Runtime: python3.11
       Handler: index.lambda_handler
-      Role: !GetAtt rSuppressionEngineRole.Arn
+      Role: !If [CreateNewRole, !GetAtt rSuppressionEngineRole.Arn, !Ref pExistingRoleArn]
       Timeout: 900
       MemorySize: 512
       Environment:

@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Security Hub Suppression Engine v2 - No IAM Role Creation'
+
+Parameters:
+  pEnvironment:
+    Type: String
+    Default: 'dev'
+    Description: 'Environment name (dev, staging, prod)'
+  
+  pLogLevel:
+    Type: String
+    Default: 'DEBUG'
+    AllowedValues: ['DEBUG', 'INFO', 'WARNING', 'ERROR']
+    Description: 'Lambda logging level'
+    
+  pLambdaRoleArn:
+    Type: String
+    Description: 'ARN of existing IAM role for Lambda execution'
+
+Resources:
+  # DynamoDB Tables
+  rSuppressionRulesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'suppression-rules-${pEnvironment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  rSuppressionCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'suppression-cache-${pEnvironment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: FindingId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: FindingId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # Lambda Function (uses existing role)
+  rSuppressionEngineLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'suppression-engine-v2-${pEnvironment}'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !Ref pLambdaRoleArn
+      Timeout: 900
+      MemorySize: 512
+      Environment:
+        Variables:
+          eSecHubSuppressTableName: !Ref rSuppressionRulesTable
+          eSecHubSuppressCache: !Ref rSuppressionCacheTable
+          EXECUTION_MODE: 'execute'
+          LOGGING_LEVEL: !Ref pLogLevel
+      Code:
+        ZipFile: |
+          # Lambda code here (same as original)
+          import logging
+          import os
+          # ... rest of Lambda code
+
+Outputs:
+  oLambdaFunctionArn:
+    Description: 'Suppression Engine Lambda Function ARN'
+    Value: !GetAtt rSuppressionEngineLambda.Arn
+
+  oRulesTableName:
+    Description: 'Suppression Rules DynamoDB Table Name'
+    Value: !Ref rSuppressionRulesTable
