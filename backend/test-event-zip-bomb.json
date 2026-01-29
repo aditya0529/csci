@@ -1,0 +1,43 @@
+{
+  "version": "0",
+  "id": "test-zip-bomb-event",
+  "detail-type": "Security Hub Findings - Imported",
+  "source": "aws.securityhub",
+  "account": "593000275026",
+  "time": "2026-01-28T20:49:00Z",
+  "region": "us-east-1",
+  "detail": {
+    "findings": [
+      {
+        "Id": "arn:aws:inspector2:us-east-1:593000275026:finding/zip-bomb-test",
+        "ProductArn": "arn:aws:securityhub:us-east-1::product/aws/inspector",
+        "ProductName": "Inspector",
+        "GeneratorId": "AWSInspector",
+        "AwsAccountId": "593000275026",
+        "Title": "python/zip-bomb-attack@v1.0 - Test vulnerability in Lambda function",
+        "Description": "Test python/zip-bomb-attack@v1.0 for controltower-custom pattern matching",
+        "Severity": {
+          "Label": "LOW"
+        },
+        "Workflow": {
+          "Status": "NEW"
+        },
+        "Resources": [
+          {
+            "Id": "arn:aws:lambda:us-east-1:593000275026:function:aws-controltower-customiz-CustomControlTowerLELamb-1TZ7YXNEXYP39:$LATEST",
+            "Type": "AwsLambdaFunction",
+            "Region": "us-east-1",
+            "Partition": "aws"
+          }
+        ],
+        "Vulnerabilities": [
+          {
+            "Id": "python/zip-bomb-attack@v1.0"
+          }
+        ],
+        "UserDefinedFields": {},
+        "Note": {}
+      }
+    ]
+  }
+}

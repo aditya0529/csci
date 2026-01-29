@@ -2,6 +2,7 @@ package com.swift.csci.config;
 
 import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.auth.BasicAWSCredentials;
+import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
 import com.amazonaws.auth.STSAssumeRoleSessionCredentialsProvider;
 import com.amazonaws.client.builder.AwsClientBuilder;
 import com.amazonaws.regions.Regions;
@@ -34,8 +35,13 @@ public class DynamoDBConfig {
 
     @Value("${testing.aws.region:eu-central-1}")
     private String awsRegionForTesting;
-    @Value("${amazon.crossAccountRoleArn:arn:aws:iam::717264881942:role/sw-csci-cross-account-dynamodb-role-main-aws}")
+    @Value("${amazon.region:us-east-1}")
+    private String awsRegion;
+    @Value("${amazon.crossAccountRoleArn:}")
     private String crossAccountRoleArn;
+    
+    @Value("${amazon.useLocalCredentials:false}")
+    private boolean useLocalCredentials;
 
 
 
@@ -47,6 +53,15 @@ public class DynamoDBConfig {
     @Bean
     public AmazonDynamoDB amazonDynamoDBConfig() {
 
+        // Check if we should use local AWS credentials (for connecting to real AWS DynamoDB locally)
+        if (useLocalCredentials) {
+            LOGGER.info("Using local AWS credentials to connect to real AWS DynamoDB.");
+            return AmazonDynamoDBClientBuilder.standard()
+                    .withCredentials(DefaultAWSCredentialsProviderChain.getInstance())
+                    .withRegion(awsRegion)  // Use awsRegion instead of awsRegionForTesting
+                    .build();
+        }
+        
         if (isRunningInContainer) {
             LOGGER.info("Application is running in a container in AWS.");
             LOGGER.info("Attempting to assume role + " + crossAccountRoleArn);
@@ -86,9 +101,9 @@ public class DynamoDBConfig {
             }
 
 
-            // The else part is for local testing
+            // The else part is for local testing with local DynamoDB
         } else {
-            LOGGER.info("Application is NOT running in a container, most likely running on-prem for testing.");
+            LOGGER.info("Application is NOT running in a container, using local DynamoDB for testing.");
             BasicAWSCredentials awsCredentials = new BasicAWSCredentials(localDatabaseAccessKeyForTesting, localDatabaseSecretKeyForTesting);
             return AmazonDynamoDBClientBuilder.standard()
                     .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(awsDynamoDBEndpointForTesting, awsRegionForTesting))

@@ -2,7 +2,7 @@ import { useCookies } from 'react-cookie';
 import {useEffect, useState} from "react";
 
 const useRestController = ({ api, method='GET', body }) => {
-  const baseUrl = "[https://csci.swift.com](https://csci.swift.com)";
+  const baseUrl = "http://localhost:8080";
   const [ data, setData ] = useState(null);
   const [ isPending, setIsPending ] = useState(true);
   const [ error, setError ] = useState(null);

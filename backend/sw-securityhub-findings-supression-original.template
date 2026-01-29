@@ -749,210 +749,210 @@ Resources:
 
 
   ## Reset Lambda and resources
-#  rResetLambdaExecutionPolicy:
-#    Type: "AWS::IAM::ManagedPolicy"
-#    Properties:
-#      PolicyDocument:
-#        Statement:
-#          - Action:
-#              - "logs:CreateLogStream"
-#              - "logs:PutLogEvents"
-#            Effect: Allow
-#            Resource: !Join
-#              - ""
-#              - - "arn:aws:logs:"
-#                - !Ref "AWS::Region"
-#                - ":"
-#                - !Ref "AWS::AccountId"
-#                - !Sub ":log-group:/aws/lambda/${pResetLambdaName}:*"
-#            Sid: CloudWatchLogs
-#          - Action:
-#              - securityhub:BatchUpdateFindings
-#              - securityhub:GetFindings
-#            Effect: Allow
-#            Resource: "*"
-#            Sid: SecurityHubBatchUpdateFindings
-#          - Action:
-#              - dynamodb:GetShardIterator
-#              - dynamodb:DescribeStream
-#              - dynamodb:GetRecords
-#            Effect: Allow
-#            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${pSuppressionRuleDynamodbTableName}/stream/*"
-#            Sid: DynamoDBStreams
-#          - Action: dynamodb:ListStreams
-#            Resource: "*"
-#            Effect: Allow
-#            Sid: DynamoDBListStreams
-#          - Action: "sqs:SendMessage"
-#            Resource: !Sub "arn:aws:sqs:*:${AWS::AccountId}:*"
-#            Effect: Allow
-#            Sid: SQSDLQPermission
-#        Version: 2012-10-17
-#      Description: Policy to update and trigger lambda to reset the Suppression for Security Hub Findings
-#      Path: /
-#
-#
-#  rResetLambdaExecutionRole:
-#    Type: "AWS::IAM::Role"
-#    Properties:
-#      RoleName: !Sub ${pResetLambdaExecutionRoleName}
-#      AssumeRolePolicyDocument:
-#        Statement:
-#          - Action: "sts:AssumeRole"
-#            Effect: Allow
-#            Principal:
-#              Service: lambda.amazonaws.com
-#            Condition:
-#              StringEquals:
-#                'aws:SourceAccount': !Sub "${AWS::AccountId}"
-#        Version: 2012-10-17
-#      Description: Suppression role for Security Hub batch update findings
-#      ManagedPolicyArns:
-#        - !Ref rResetLambdaExecutionPolicy
-#      Path: /
-#
-#  rResetLambdaLogGroup:
-#    Type: "AWS::Logs::LogGroup"
-#    Properties:
-#      LogGroupName: !Sub "/aws/lambda/${pResetLambdaName}"
-#      RetentionInDays: 30
-#
-#  rSecHubResetFunction:
-#    Type: "AWS::Lambda::Function"
-#    Properties:
-#      Code:
-#        ZipFile: |
-#          import boto3
-#          import botocore.exceptions as boto3exceptions
-#          import logging
-#
-#          logger = logging.getLogger()
-#          logger.setLevel(logging.INFO)
-#
-#          client = boto3.client("securityhub")
-#
-#
-#          def handler(event, context):
-#            if 'Records' in event:
-#              # logger.info(f"Incoming Dynamodb event : {event['Records']}")
-#              counter = 0
-#              for record in event['Records']:
-#                if 'eventName' in record:
-#                  if (record['eventName'] == 'MODIFY' or record['eventName'] == 'INSERT' or record[
-#                  'eventName'] == 'DELETE') \
-#                    and record['eventSource'] == 'aws:dynamodb':
-#                    security_control_id = record["dynamodb"]["Keys"]["id"]["S"]
-#                    print(f"security_control_id {security_control_id}")
-#                    paginator = client.get_paginator("get_findings")
-#                    page_iterator = paginator.paginate(Filters={
-#                      'ComplianceSecurityControlId': [
-#                        {
-#                          'Value': security_control_id,
-#                          'Comparison': 'EQUALS'
-#                        }
-#                      ],
-#                      'RecordState': [
-#                        {
-#                          'Value': "ACTIVE",
-#                          'Comparison': 'EQUALS'
-#                        }
-#                      ],
-#                      'ComplianceStatus': [
-#                        {
-#                          'Value': "FAILED",
-#                          'Comparison': 'EQUALS'
-#                        }
-#                      ]
-#                    })
-#
-#                    for page in page_iterator:
-#                      for finding in page["Findings"]:
-#                        # logger.info(f"finding {finding}")
-#                        finding_id = finding["Id"]
-#                        product_arn = finding["ProductArn"]
-#                        counter = counter + 1
-#                        try:
-#                          response = client.batch_update_findings(
-#                            FindingIdentifiers=[
-#                              {
-#                                'Id': finding_id,
-#                                'ProductArn': product_arn
-#                              },
-#                            ],
-#                            Workflow={
-#                              'Status': 'NEW'
-#                            }
-#                          )
-#                          if response["ProcessedFindings"]:
-#                            logger.info(f"ProcessedFindings {response['ProcessedFindings']}")
-#                          elif response["UnprocessedFindings"]:
-#                            logger.info(f"UnprocessedFindings {response['UnprocessedFindings']}")
-#                        except boto3exceptions.ClientError as error:
-#                          logger.exception("client error")
-#                          raise ConnectionError(f"Client error invoking batch update findings {error}")
-#                        except boto3exceptions.ParamValidationError as error:
-#                          logger.exception("invalid parameters")
-#                          raise ValueError(f"The parameters you provided are incorrect: {error}")
-#
-#              print(f"Total Findings: {counter}")
-#
-#            return {
-#                'statusCode': 200
-#            }
-#      Role: !GetAtt
-#        - rResetLambdaExecutionRole
-#        - Arn
-#      Description: The Lambda function to reset the Workflow status of SecurityHub findings when an item is created/updated/deleted in the CSCI DynamoDB table.
-#      FunctionName: !Ref pResetLambdaName
-#      Handler: index.handler
-#      Runtime: python3.12
-#      Timeout: 900
-#      Tags:
-#        - Key: !Ref pTagKey1
-#          Value: !Ref pTagValue1
-#        - Key: !Ref pTagApplicationKey
-#          Value: !Ref pTagApplicationValue
-#        - Key: !Ref pTagOwnerKey
-#          Value: !Ref pTagOwnerValue
-#        - Key: !Ref pTagTechnicalContactKey
-#          Value: !Ref pTagTechnicalContactValue
-#        - Key: !Ref pTagProductKey
-#          Value: !Ref pTagProductValue
-#        - Key: !Ref pTagEnvKey
-#          Value: !Ref pTagEnvValue
-#        - Key: !Ref pTagCreatedByKey
-#          Value: !Ref pTagCreatedByValue
-#        - Key: !Ref pTagCostCenterIdKey
-#          Value: !Ref pTagCostCenterIdValue
-#
-#  rResetLambdaSQSOnFailureDLQ:
-#    Type: AWS::SQS::Queue
-#    Properties:
-#      DelaySeconds: 0
-#      MaximumMessageSize: 262144
-#      MessageRetentionPeriod: 604800
-#      QueueName: sw-sqs-lambda-suppression-reset-failures
-#      ReceiveMessageWaitTimeSeconds: 1
-#      VisibilityTimeout: 30
-#
-#  rDynamoDBLambdaEventSourceMapping:
-#    Type: AWS::Lambda::EventSourceMapping
-#    Properties:
-#      BatchSize: 1
-#      BisectBatchOnFunctionError: false
-#      DestinationConfig:
-#        OnFailure:
-#          Destination: !GetAtt rResetLambdaSQSOnFailureDLQ.Arn
-#      Enabled: true
-#      EventSourceArn: !Ref pSuppressionRuleDynamoDbStreamArn
-#      FunctionName: !GetAtt rSecHubResetFunction.Arn
-#      FunctionResponseTypes:
-#        - ReportBatchItemFailures
-#      MaximumBatchingWindowInSeconds: 0
-#      MaximumRecordAgeInSeconds: -1
-#      MaximumRetryAttempts: 1
-#      ParallelizationFactor: 1
-#      StartingPosition: LATEST
+  #  rResetLambdaExecutionPolicy:
+  #    Type: "AWS::IAM::ManagedPolicy"
+  #    Properties:
+  #      PolicyDocument:
+  #        Statement:
+  #          - Action:
+  #              - "logs:CreateLogStream"
+  #              - "logs:PutLogEvents"
+  #            Effect: Allow
+  #            Resource: !Join
+  #              - ""
+  #              - - "arn:aws:logs:"
+  #                - !Ref "AWS::Region"
+  #                - ":"
+  #                - !Ref "AWS::AccountId"
+  #                - !Sub ":log-group:/aws/lambda/${pResetLambdaName}:*"
+  #            Sid: CloudWatchLogs
+  #          - Action:
+  #              - securityhub:BatchUpdateFindings
+  #              - securityhub:GetFindings
+  #            Effect: Allow
+  #            Resource: "*"
+  #            Sid: SecurityHubBatchUpdateFindings
+  #          - Action:
+  #              - dynamodb:GetShardIterator
+  #              - dynamodb:DescribeStream
+  #              - dynamodb:GetRecords
+  #            Effect: Allow
+  #            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${pSuppressionRuleDynamodbTableName}/stream/*"
+  #            Sid: DynamoDBStreams
+  #          - Action: dynamodb:ListStreams
+  #            Resource: "*"
+  #            Effect: Allow
+  #            Sid: DynamoDBListStreams
+  #          - Action: "sqs:SendMessage"
+  #            Resource: !Sub "arn:aws:sqs:*:${AWS::AccountId}:*"
+  #            Effect: Allow
+  #            Sid: SQSDLQPermission
+  #        Version: 2012-10-17
+  #      Description: Policy to update and trigger lambda to reset the Suppression for Security Hub Findings
+  #      Path: /
+  #
+  #
+  #  rResetLambdaExecutionRole:
+  #    Type: "AWS::IAM::Role"
+  #    Properties:
+  #      RoleName: !Sub ${pResetLambdaExecutionRoleName}
+  #      AssumeRolePolicyDocument:
+  #        Statement:
+  #          - Action: "sts:AssumeRole"
+  #            Effect: Allow
+  #            Principal:
+  #              Service: lambda.amazonaws.com
+  #            Condition:
+  #              StringEquals:
+  #                'aws:SourceAccount': !Sub "${AWS::AccountId}"
+  #        Version: 2012-10-17
+  #      Description: Suppression role for Security Hub batch update findings
+  #      ManagedPolicyArns:
+  #        - !Ref rResetLambdaExecutionPolicy
+  #      Path: /
+  #
+  #  rResetLambdaLogGroup:
+  #    Type: "AWS::Logs::LogGroup"
+  #    Properties:
+  #      LogGroupName: !Sub "/aws/lambda/${pResetLambdaName}"
+  #      RetentionInDays: 30
+  #
+  #  rSecHubResetFunction:
+  #    Type: "AWS::Lambda::Function"
+  #    Properties:
+  #      Code:
+  #        ZipFile: |
+  #          import boto3
+  #          import botocore.exceptions as boto3exceptions
+  #          import logging
+  #
+  #          logger = logging.getLogger()
+  #          logger.setLevel(logging.INFO)
+  #
+  #          client = boto3.client("securityhub")
+  #
+  #
+  #          def handler(event, context):
+  #            if 'Records' in event:
+  #              # logger.info(f"Incoming Dynamodb event : {event['Records']}")
+  #              counter = 0
+  #              for record in event['Records']:
+  #                if 'eventName' in record:
+  #                  if (record['eventName'] == 'MODIFY' or record['eventName'] == 'INSERT' or record[
+  #                  'eventName'] == 'DELETE') \
+  #                    and record['eventSource'] == 'aws:dynamodb':
+  #                    security_control_id = record["dynamodb"]["Keys"]["id"]["S"]
+  #                    print(f"security_control_id {security_control_id}")
+  #                    paginator = client.get_paginator("get_findings")
+  #                    page_iterator = paginator.paginate(Filters={
+  #                      'ComplianceSecurityControlId': [
+  #                        {
+  #                          'Value': security_control_id,
+  #                          'Comparison': 'EQUALS'
+  #                        }
+  #                      ],
+  #                      'RecordState': [
+  #                        {
+  #                          'Value': "ACTIVE",
+  #                          'Comparison': 'EQUALS'
+  #                        }
+  #                      ],
+  #                      'ComplianceStatus': [
+  #                        {
+  #                          'Value': "FAILED",
+  #                          'Comparison': 'EQUALS'
+  #                        }
+  #                      ]
+  #                    })
+  #
+  #                    for page in page_iterator:
+  #                      for finding in page["Findings"]:
+  #                        # logger.info(f"finding {finding}")
+  #                        finding_id = finding["Id"]
+  #                        product_arn = finding["ProductArn"]
+  #                        counter = counter + 1
+  #                        try:
+  #                          response = client.batch_update_findings(
+  #                            FindingIdentifiers=[
+  #                              {
+  #                                'Id': finding_id,
+  #                                'ProductArn': product_arn
+  #                              },
+  #                            ],
+  #                            Workflow={
+  #                              'Status': 'NEW'
+  #                            }
+  #                          )
+  #                          if response["ProcessedFindings"]:
+  #                            logger.info(f"ProcessedFindings {response['ProcessedFindings']}")
+  #                          elif response["UnprocessedFindings"]:
+  #                            logger.info(f"UnprocessedFindings {response['UnprocessedFindings']}")
+  #                        except boto3exceptions.ClientError as error:
+  #                          logger.exception("client error")
+  #                          raise ConnectionError(f"Client error invoking batch update findings {error}")
+  #                        except boto3exceptions.ParamValidationError as error:
+  #                          logger.exception("invalid parameters")
+  #                          raise ValueError(f"The parameters you provided are incorrect: {error}")
+  #
+  #              print(f"Total Findings: {counter}")
+  #
+  #            return {
+  #                'statusCode': 200
+  #            }
+  #      Role: !GetAtt
+  #        - rResetLambdaExecutionRole
+  #        - Arn
+  #      Description: The Lambda function to reset the Workflow status of SecurityHub findings when an item is created/updated/deleted in the CSCI DynamoDB table.
+  #      FunctionName: !Ref pResetLambdaName
+  #      Handler: index.handler
+  #      Runtime: python3.12
+  #      Timeout: 900
+  #      Tags:
+  #        - Key: !Ref pTagKey1
+  #          Value: !Ref pTagValue1
+  #        - Key: !Ref pTagApplicationKey
+  #          Value: !Ref pTagApplicationValue
+  #        - Key: !Ref pTagOwnerKey
+  #          Value: !Ref pTagOwnerValue
+  #        - Key: !Ref pTagTechnicalContactKey
+  #          Value: !Ref pTagTechnicalContactValue
+  #        - Key: !Ref pTagProductKey
+  #          Value: !Ref pTagProductValue
+  #        - Key: !Ref pTagEnvKey
+  #          Value: !Ref pTagEnvValue
+  #        - Key: !Ref pTagCreatedByKey
+  #          Value: !Ref pTagCreatedByValue
+  #        - Key: !Ref pTagCostCenterIdKey
+  #          Value: !Ref pTagCostCenterIdValue
+  #
+  #  rResetLambdaSQSOnFailureDLQ:
+  #    Type: AWS::SQS::Queue
+  #    Properties:
+  #      DelaySeconds: 0
+  #      MaximumMessageSize: 262144
+  #      MessageRetentionPeriod: 604800
+  #      QueueName: sw-sqs-lambda-suppression-reset-failures
+  #      ReceiveMessageWaitTimeSeconds: 1
+  #      VisibilityTimeout: 30
+  #
+  #  rDynamoDBLambdaEventSourceMapping:
+  #    Type: AWS::Lambda::EventSourceMapping
+  #    Properties:
+  #      BatchSize: 1
+  #      BisectBatchOnFunctionError: false
+  #      DestinationConfig:
+  #        OnFailure:
+  #          Destination: !GetAtt rResetLambdaSQSOnFailureDLQ.Arn
+  #      Enabled: true
+  #      EventSourceArn: !Ref pSuppressionRuleDynamoDbStreamArn
+  #      FunctionName: !GetAtt rSecHubResetFunction.Arn
+  #      FunctionResponseTypes:
+  #        - ReportBatchItemFailures
+  #      MaximumBatchingWindowInSeconds: 0
+  #      MaximumRecordAgeInSeconds: -1
+  #      MaximumRetryAttempts: 1
+  #      ParallelizationFactor: 1
+  #      StartingPosition: LATEST
 
   ## CCOE-8097 : New implementation of Suppression rule engine to handle following requirements:
   ##  1. Process findings in batch of 100 using cache db
@@ -1304,16 +1304,16 @@ Resources:
                 # ResourcePattern + ID cross-validation
                 trimmed_id = self.id.strip() if self.id else ""
                 if len(self.resource_pattern) > 0:
-                  # L2: Block wildcards in resource_pattern when ID is *
+                  # Block wildcards in resource_pattern when ID is *
                   if trimmed_id == "*" and "*" in self.resource_pattern:
                     logger.error(f"Suppression rule (Id - {self.id}) has wildcard in resource_pattern when ID is * - {self.resource_pattern}")
                     return False
-                  # L1: Allow wildcards in resource_pattern when ID is specific - PASS
-                
-                # L5: Block wildcards in resource_type ALWAYS (original behavior)
+                  # Allow wildcards in resource_pattern when ID is specific - PASS
+
+                # Block wildcards in resource_type ALWAYS (original behavior)
                 if len(self.resource_type) > 0 and "*" in self.resource_type:
                   logger.error(f"Suppression rule (Id - {self.id}) has wildcard in resource_type - {self.resource_type}")
-                  return False                
+                  return False
                 if len(self.resource_pattern) == 0 and len(self.resource_type) == 0:
                   logger.error(f"Please provide both or one of ResourceType or ResourcePattern or Id")
                   return False

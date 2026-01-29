@@ -1,0 +1,8 @@
+{
+  "name": "dummy-frontend",
+  "version": "1.0.0",
+  "description": "Dummy package.json to satisfy Maven build",
+  "scripts": {
+    "build": "echo 'Dummy build'"
+  }
+}

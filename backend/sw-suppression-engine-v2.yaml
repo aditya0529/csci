@@ -1,0 +1,664 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Security Hub Suppression Engine v2 - Complete deployment with Lambda, DynamoDB, and EventBridge'
+
+Parameters:
+  pEnvironment:
+    Type: String
+    Default: 'dev'
+    Description: 'Environment name (dev, staging, prod)'
+  
+  pLogLevel:
+    Type: String
+    Default: 'DEBUG'
+    AllowedValues: ['DEBUG', 'INFO', 'WARNING', 'ERROR']
+    Description: 'Lambda logging level'
+
+Resources:
+  # DynamoDB Tables
+  rSuppressionRulesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'suppression-rules-${pEnvironment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref pEnvironment
+        - Key: Purpose
+          Value: 'SecurityHub Suppression Rules'
+
+  rSuppressionCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'suppression-cache-${pEnvironment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: FindingId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: FindingId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref pEnvironment
+        - Key: Purpose
+          Value: 'SecurityHub Suppression Cache'
+
+  # IAM Role for Lambda
+  rSuppressionEngineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'SuppressionEngine-${pEnvironment}-Role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SuppressionEnginePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # DynamoDB permissions
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt rSuppressionRulesTable.Arn
+                  - !GetAtt rSuppressionCacheTable.Arn
+              # Security Hub permissions
+              - Effect: Allow
+                Action:
+                  - securityhub:GetFindings
+                  - securityhub:BatchUpdateFindings
+                Resource: '*'
+              # SSM permissions for supported regions
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/suppression-engine/*'
+
+  # Lambda Function
+  rSuppressionEngineLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'suppression-engine-v2-${pEnvironment}'
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt rSuppressionEngineRole.Arn
+      Timeout: 900
+      MemorySize: 512
+      Environment:
+        Variables:
+          eSecHubSuppressTableName: !Ref rSuppressionRulesTable
+          eSecHubSuppressCache: !Ref rSuppressionCacheTable
+          EXECUTION_MODE: 'execute'
+          LOGGING_LEVEL: !Ref pLogLevel
+          SUPPORTED_REGIONS_SSM_PARAMETER: !Sub '/suppression-engine/${pEnvironment}/supported-regions'
+      Code:
+        ZipFile: |
+          import logging
+          import os
+          import re
+          from datetime import datetime, timezone
+          from typing import List, Dict, Optional
+          from boto3.dynamodb.conditions import Key, Attr
+          import boto3
+          import json
+
+          # Setup logging
+          logger = logging.getLogger()
+          RULES_TABLE_NAME = os.environ['eSecHubSuppressTableName']
+          CACHE_TABLE_NAME = os.environ['eSecHubSuppressCache']
+          EXECUTION_MODE = os.environ.get("EXECUTION_MODE", "log").lower()
+          LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", "INFO").upper()
+          
+          if LOGGING_LEVEL not in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+              LOGGING_LEVEL = "INFO"
+          logging.basicConfig(level=getattr(logging, LOGGING_LEVEL))
+          logger = logging.getLogger(__name__)
+          logger.setLevel(getattr(logging, LOGGING_LEVEL))
+
+          # AWS clients
+          dynamodb = boto3.resource('dynamodb')
+          securityhub_client = boto3.client('securityhub')
+          ssm_client = boto3.client('ssm')
+
+          class SecurityHubFinding:
+              def __init__(self, payload):
+                  self.product_name = (
+                      payload.get("ProductName") or
+                      payload.get("ProductFields", {}).get("aws/securityhub/ProductName") or
+                      "UnknownProduct"
+                  )
+                  self.finding_identifiers = []
+                  self.title = payload["Title"]
+                  self.label = payload["Severity"]["Label"]
+                  self.resource_id = ''
+                  self.finding_account_id = payload["AwsAccountId"]
+                  self.extra_resource_arn = ''
+                  self.id = ''
+                  self.generator_id = payload["GeneratorId"]
+                  self.resource_type = ''
+                  self.workflow_status = payload["Workflow"]["Status"]
+
+                  if self.product_name == "Security Hub" and 'Compliance' in payload and 'SecurityControlId' in payload["Compliance"]:
+                      self.id = payload["Compliance"]["SecurityControlId"]
+                  elif self.product_name == "Inspector" and 'Vulnerabilities' in payload and 'Id' in payload["Vulnerabilities"][0]:
+                      self.id = payload["Vulnerabilities"][0]["Id"]
+                  elif self.product_name in ("IAM Access Analyzer", "Health", "GuardDuty") and 'Resources' in payload and 'Id' in payload["Resources"]:
+                      self.id = payload["Resources"]["Id"]
+                  
+                  resource_one = payload["Resources"][0]
+                  finding_identifier = {
+                      "Id": payload["Id"],
+                      "ProductArn": payload["ProductArn"],
+                  }
+                  self.finding_identifiers.append(finding_identifier)
+                  self.finding_account_id = payload["AwsAccountId"]
+                  self.resource_id = resource_one["Id"]
+                  self.resource_type = resource_one["Type"]
+                  
+                  if "Details" in resource_one and "AwsEc2Instance" in resource_one["Details"] and "IamInstanceProfileArn" in resource_one["Details"]["AwsEc2Instance"]:
+                      self.extra_resource_arn = resource_one["Details"]["AwsEc2Instance"]["IamInstanceProfileArn"]
+                  elif "Details" in resource_one and "AwsEc2SecurityGroup" in resource_one["Details"] and "GroupName" in resource_one["Details"]["AwsEc2SecurityGroup"]:
+                      self.extra_resource_arn = resource_one["Details"]["AwsEc2SecurityGroup"]["GroupName"]
+                  elif "Details" in resource_one and "AwsEc2Instance" in resource_one["Details"] and "KeyName" in resource_one["Details"]["AwsEc2Instance"]:
+                      self.extra_resource_arn = resource_one["Details"]["AwsEc2Instance"]["KeyName"]
+                  
+                  self.note = payload.get("Note")
+                  self.udf = payload.get("UserDefinedFields", {})
+
+              def __str__(self):
+                  return f"SecurityHubFinding(id={self.id}, product_name={self.product_name}, resource_id={self.resource_id})"
+
+          class Rule:
+              def __init__(self, rule_data: Dict):
+                  self.id = rule_data['id']
+                  self.product_name = rule_data.get('product_name')
+                  self.ser_id = rule_data.get('ser_id')
+                  self.ser_link = rule_data.get('ser_link')
+                  self.account_exception = [a.strip() for a in rule_data.get('account_exception', '').split(',') if a.strip()]
+                  self.account_inclusion = [a.strip() for a in rule_data.get('account_inclusion', '').split(',') if a.strip()]
+                  self.resource_type = rule_data.get('resource_type', '')
+                  self.finding_title = rule_data.get('finding_title', '')
+                  self.resource_pattern = rule_data.get('resource_pattern', '')
+                  self.extra_resource_pattern = rule_data.get('extra_resource_pattern', '')
+                  self.from_severity = rule_data.get('from_severity', '')
+                  self.to_severity = rule_data.get('to_severity', '')
+                  self.due_date = self._parse_due_date(rule_data.get('due_date'))
+                  self.valid_rule = self._validate_rule()
+
+              def _parse_due_date(self, due_date_str):
+                  if not due_date_str:
+                      return None
+                  try:
+                      return datetime.strptime(due_date_str, "%Y-%m-%d")
+                  except ValueError:
+                      logger.warning(f"Invalid due_date format: {due_date_str}")
+                      return None
+
+              def _validate_rule(self):
+                  if self.product_name == "Inspector":
+                      if len(self.resource_pattern) == 0 and len(self.resource_type) == 0:
+                          logger.error(f"Please provide both or one of ResourceType or ResourcePattern or Id")
+                          return False
+                  elif len(self.resource_pattern) == 0 and len(self.resource_type) == 0:
+                      return False
+                  return True
+
+              def is_expired(self):
+                  return self.due_date and datetime.now(timezone.utc).date() > self.due_date.date()
+
+              def matches(self, finding: SecurityHubFinding) -> Optional[Dict]:
+                  logger.debug(f"🎯 Testing rule {self.id} against finding {self.id}")
+                  
+                  # Step 1: ID matching
+                  id_match = False
+                  if finding.id == self.id:
+                      id_match = True
+                      logger.debug(f"✅ Exact ID match: {finding.id} == {self.id}")
+                  else:
+                      if self.product_name == "Inspector":
+                          id_prefix = re.compile(r'^' + self.id.strip("*"))
+                          if id_prefix.search(finding.id):
+                              id_match = True
+                              logger.debug(f"✅ Prefix ID match: {finding.id} matches ^{self.id.strip('*')}")
+                          else:
+                              logger.debug(f"❌ No ID match: {finding.id} vs {self.id}")
+                  
+                  if not id_match:
+                      logger.debug(f"❌ Rule {self.id} failed ID match - skipping")
+                      return None
+                      
+                  # Step 2: Resource pattern matching
+                  logger.debug(f"🔍 Testing resource pattern matching...")
+                  is_resource_id_type_match = self._match_resource_id_type(finding)
+                  
+                  if not is_resource_id_type_match:
+                      logger.debug(f"❌ Rule {self.id} failed resource pattern match - skipping")
+                      return None
+                      
+                  # Step 3: Account validation
+                  account_match = False
+                  if self.account_inclusion:
+                      account_match = finding.finding_account_id in self.account_inclusion
+                      logger.debug(f"🔍 Account inclusion check: {finding.finding_account_id} in {self.account_inclusion} = {account_match}")
+                  else:
+                      account_match = finding.finding_account_id not in self.account_exception
+                      logger.debug(f"🔍 Account exclusion check: {finding.finding_account_id} not in {self.account_exception} = {account_match}")
+                      
+                  if not account_match:
+                      logger.debug(f"❌ Rule {self.id} failed account check - skipping")
+                      return None
+                      
+                  # Step 4: Extra resource pattern
+                  extra_pattern_match = True
+                  if self.extra_resource_pattern:
+                      extra_pattern_match = bool(re.search(self.extra_resource_pattern, finding.extra_resource_arn))
+                      logger.debug(f"🔍 Extra resource pattern: '{self.extra_resource_pattern}' vs '{finding.extra_resource_arn}' = {extra_pattern_match}")
+                  
+                  if not extra_pattern_match:
+                      logger.debug(f"❌ Rule {self.id} failed extra resource pattern - skipping")
+                      return None
+                      
+                  logger.debug(f"🎉 FULL MATCH! Rule {self.id} matches finding {finding.id}")
+                  
+                  # Determine action
+                  if self.from_severity and self.to_severity and finding.label == self.from_severity:
+                      logger.debug(f"🔄 Severity update: {self.from_severity} → {self.to_severity}")
+                      return {"action": "severity_update", "new_severity": self.to_severity}
+                  else:
+                      logger.debug(f"🔒 Suppression action")
+                      return {"action": "suppress", "new_severity": None}
+
+              def _match_resource_id_type(self, finding: SecurityHubFinding):
+                  logger.debug(f"🔍 Resource pattern matching:")
+                  logger.debug(f"   Rule pattern: '{self.resource_pattern}' (len={len(self.resource_pattern)})")
+                  logger.debug(f"   Rule type: '{self.resource_type}' (len={len(self.resource_type)})")
+                  logger.debug(f"   Finding resource_id: '{finding.resource_id}'")
+                  logger.debug(f"   Finding resource_type: '{finding.resource_type}'")
+                  
+                  if len(self.resource_pattern) > 0 and len(self.resource_type) > 0:
+                      pattern_match = re.search(self.resource_pattern, finding.resource_id)
+                      type_match = re.search(self.resource_type, finding.resource_type)
+                      logger.debug(f"   Pattern match result: {pattern_match is not None}")
+                      logger.debug(f"   Type match result: {type_match is not None}")
+                      
+                      if pattern_match and type_match:
+                          logger.debug(f"✅ Both pattern and type matched")
+                          return True
+                      else:
+                          logger.debug(f"❌ Pattern or type failed - Pattern: {pattern_match is not None}, Type: {type_match is not None}")
+                          return False
+                          
+                  elif len(self.resource_pattern) > 0:
+                      pattern_match = re.search(self.resource_pattern, finding.resource_id)
+                      logger.debug(f"   Pattern-only match: {pattern_match is not None}")
+                      if pattern_match:
+                          logger.debug(f"✅ Pattern matched: '{pattern_match.group()}'")
+                          return True
+                      else:
+                          logger.debug(f"❌ Pattern failed to match")
+                          return False
+                          
+                  elif len(self.resource_type) > 0:
+                      type_match = re.search(self.resource_type, finding.resource_type)
+                      logger.debug(f"   Type-only match: {type_match is not None}")
+                      if type_match:
+                          logger.debug(f"✅ Type matched")
+                          return True
+                      else:
+                          logger.debug(f"❌ Type failed to match")
+                          return False
+                  else:
+                      logger.debug(f"❌ No pattern or type specified - rule invalid")
+                      return False
+
+          class SuppressionRuleEngine:
+              def __init__(self):
+                  self.rules_table = dynamodb.Table(RULES_TABLE_NAME)
+                  self.cache_table = dynamodb.Table(CACHE_TABLE_NAME)
+                  self.rules: List[Rule] = self.load_rules()
+                  self.rule_ids = {rule.id for rule in self.rules}
+
+              def load_rules(self) -> List[Rule]:
+                  logger.info("🔧 Loading suppression rules from DynamoDB...")
+                  try:
+                      response = self.rules_table.scan()
+                      rules = []
+                      for item in response['Items']:
+                          rule = Rule(item)
+                          if rule.valid_rule and not rule.is_expired():
+                              rules.append(rule)
+                              logger.debug(f"✅ Loaded rule: {rule.id}")
+                          else:
+                              logger.warning(f"⚠️ Skipped invalid/expired rule: {rule.id}")
+                      
+                      logger.info(f"✅ Loaded {len(rules)} valid rules")
+                      return rules
+                  except Exception as e:
+                      logger.error(f"❌ Failed to load rules: {e}")
+                      return []
+
+              def cache_eligible_for_suppression_finding(self, finding: SecurityHubFinding, event_type: str):
+                  logger.info(f"🎯 Checking suppression eligibility for finding: {finding.id}")
+                  
+                  for rule in self.rules:
+                      match_result = rule.matches(finding)
+                      if match_result:
+                          logger.info(f"🎉 Match found! Rule: {rule.id}, Action: {match_result['action']}")
+                          
+                          # Cache the finding for processing
+                          cache_item = {
+                              'FindingId': finding.finding_identifiers[0]['Id'],
+                              'RuleId': rule.id,
+                              'SerId': rule.ser_id,
+                              'SerLink': rule.ser_link,
+                              'Finding': {
+                                  'id': finding.id,
+                                  'product_name': finding.product_name,
+                                  'resource_id': finding.resource_id,
+                                  'resource_type': finding.resource_type,
+                                  'finding_identifiers': finding.finding_identifiers
+                              },
+                              'Action': match_result['action'],
+                              'OldStatus': finding.workflow_status,
+                              'NewStatus': 'SUPPRESSED' if match_result['action'] == 'suppress' else finding.workflow_status,
+                              'NewSeverity': match_result.get('new_severity'),
+                              'CachedAt': datetime.now(timezone.utc).isoformat(),
+                              'ttl': int((datetime.now(timezone.utc).timestamp()) + (7 * 24 * 60 * 60))  # 7 days TTL
+                          }
+                          
+                          if EXECUTION_MODE == "execute":
+                              self.cache_table.put_item(Item=cache_item)
+                              logger.info(f"✅ Cached finding for suppression: {finding.id}")
+                          else:
+                              logger.info(f"🔍 [DRY RUN] Would cache finding: {finding.id}")
+                          
+                          return  # Only match first rule
+                  
+                  logger.info(f"ℹ️ No matching rule found for finding: {finding.id}")
+
+              def process_findings_from_cache(self):
+                  logger.info("🔄 Processing cached findings for suppression...")
+                  
+                  try:
+                      response = self.cache_table.scan()
+                      cached_findings = response['Items']
+                      
+                      if not cached_findings:
+                          logger.info("ℹ️ No cached findings to process")
+                          return
+                      
+                      # Group findings for batch update
+                      findings_to_suppress = []
+                      findings_to_update_severity = []
+                      
+                      for cached_finding in cached_findings:
+                          if cached_finding['Action'] == 'suppress':
+                              findings_to_suppress.extend(cached_finding['Finding']['finding_identifiers'])
+                          elif cached_finding['Action'] == 'severity_update':
+                              for identifier in cached_finding['Finding']['finding_identifiers']:
+                                  findings_to_update_severity.append({
+                                      'Id': identifier,
+                                      'Severity': {'Label': cached_finding['NewSeverity']}
+                                  })
+                      
+                      # Batch update Security Hub
+                      if findings_to_suppress:
+                          logger.info(f"🔒 Suppressing {len(findings_to_suppress)} findings...")
+                          if EXECUTION_MODE == "execute":
+                              response = securityhub_client.batch_update_findings(
+                                  FindingIdentifiers=findings_to_suppress,
+                                  Workflow={'Status': 'SUPPRESSED'},
+                                  Note={'Text': 'Suppressed by automated rule', 'UpdatedBy': 'SuppressionEngine'}
+                              )
+                              logger.info(f"✅ Suppressed {len(response.get('ProcessedFindings', []))} findings")
+                          else:
+                              logger.info(f"🔍 [DRY RUN] Would suppress {len(findings_to_suppress)} findings")
+                      
+                      if findings_to_update_severity:
+                          logger.info(f"🔄 Updating severity for {len(findings_to_update_severity)} findings...")
+                          if EXECUTION_MODE == "execute":
+                              for finding_update in findings_to_update_severity:
+                                  securityhub_client.batch_update_findings(
+                                      FindingIdentifiers=[finding_update['Id']],
+                                      Severity=finding_update['Severity']
+                                  )
+                              logger.info(f"✅ Updated severity for {len(findings_to_update_severity)} findings")
+                          else:
+                              logger.info(f"🔍 [DRY RUN] Would update severity for {len(findings_to_update_severity)} findings")
+                      
+                      # Clear cache after processing
+                      if EXECUTION_MODE == "execute":
+                          with self.cache_table.batch_writer() as batch:
+                              for cached_finding in cached_findings:
+                                  batch.delete_item(Key={'FindingId': cached_finding['FindingId']})
+                          logger.info("✅ Cleared processed findings from cache")
+                      
+                  except Exception as e:
+                      logger.error(f"❌ Error processing cached findings: {e}")
+
+          def lambda_handler(event, context):
+              logger.info(f"🚀 Lambda handler started")
+              logger.info(f"Incoming event : {repr(event)}")
+              
+              logger.info("🔧 Initializing SuppressionRuleEngine...")
+              suppression_engine = SuppressionRuleEngine()
+              logger.info(f"✅ Loaded {len(suppression_engine.rules)} rules")
+
+              scheduler_type = event.get("scheduler-type")
+              event_source = event.get("source")
+              logger.info(f"📋 Event analysis: source={event_source}, scheduler_type={scheduler_type}")
+
+              # --- Case 1: New Security Hub finding ---
+              if event_source == "aws.securityhub":
+                  logger.info("🎯 Event type : SecurityHub")
+                  findings = event.get("detail", {}).get("findings", [])
+                  logger.info(f"📊 Processing {len(findings)} findings")
+                  
+                  for i, finding in enumerate(findings, 1):
+                      logger.info(f"🔍 Processing finding {i}/{len(findings)}")
+                      sec_hub_finding = SecurityHubFinding(finding)
+                      logger.info(f"✅ Transformed to SecurityHubFinding: {sec_hub_finding}")
+                      
+                      logger.info(f"🎯 Checking eligibility for suppression...")
+                      suppression_engine.cache_eligible_for_suppression_finding(
+                          finding=sec_hub_finding,
+                          event_type="SecurityHub"
+                      )
+
+              # --- Case 2: Scheduled rule ---
+              elif scheduler_type:
+                  logger.info(f"🎯 Event type : Scheduled ({scheduler_type})")
+                  
+                  if scheduler_type == 'current':
+                      logger.info("📋 Processing current cached findings...")
+                      suppression_engine.process_findings_from_cache()
+                  else:
+                      logger.info(f"ℹ️ Scheduler type '{scheduler_type}' not implemented yet")
+
+              else:
+                  logger.warning("❌ Unknown event type received")
+                  logger.warning(f"Event details: {json.dumps(event, indent=2)}")
+              
+              logger.info("🏁 Lambda handler completed successfully")
+              return {"statusCode": 200, "body": "Success"}
+
+      Tags:
+        - Key: Environment
+          Value: !Ref pEnvironment
+        - Key: Purpose
+          Value: 'SecurityHub Suppression Engine v2'
+
+  # EventBridge Rule for Security Hub Inspector findings
+  rInspectorSuppressionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'inspector-suppression-${pEnvironment}'
+      Description: 'Trigger suppression engine on Inspector findings'
+      EventPattern:
+        source: ['aws.securityhub']
+        detail-type: ['Security Hub Findings - Imported']
+        detail:
+          findings:
+            GeneratorId: ['AWSInspector']
+            Workflow:
+              Status: ['NEW']
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rSuppressionEngineLambda.Arn
+          Id: 'InspectorSuppressionTarget'
+
+  # EventBridge Rule for general Security Hub findings
+  rSecurityHubSuppressionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'securityhub-suppression-${pEnvironment}'
+      Description: 'Trigger suppression engine on Security Hub findings'
+      EventPattern:
+        source: ['aws.securityhub']
+        detail-type: ['Security Hub Findings - Imported']
+        detail:
+          findings:
+            Workflow:
+              Status: ['NEW']
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rSuppressionEngineLambda.Arn
+          Id: 'SecurityHubSuppressionTarget'
+
+  # EventBridge Rule for scheduled processing - current findings
+  rScheduledCurrentProcessingRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'suppression-current-${pEnvironment}'
+      Description: 'Process cached findings every 10 minutes'
+      ScheduleExpression: 'rate(10 minutes)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rSuppressionEngineLambda.Arn
+          Id: 'ScheduledCurrentTarget'
+          Input: '{"scheduler-type": "current"}'
+
+  # EventBridge Rule for scheduled processing - historic NEW findings
+  rScheduledHistoricNewRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'suppression-historic-new-${pEnvironment}'
+      Description: 'Process historic NEW findings every 6 hours'
+      ScheduleExpression: 'rate(6 hours)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rSuppressionEngineLambda.Arn
+          Id: 'ScheduledHistoricNewTarget'
+          Input: '{"scheduler-type": "historic-new"}'
+
+  # EventBridge Rule for scheduled processing - historic SUPPRESSED findings
+  rScheduledHistoricSuppressedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'suppression-historic-suppressed-${pEnvironment}'
+      Description: 'Process historic SUPPRESSED findings every 6 hours'
+      ScheduleExpression: 'rate(6 hours)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rSuppressionEngineLambda.Arn
+          Id: 'ScheduledHistoricSuppressedTarget'
+          Input: '{"scheduler-type": "historic-suppressed"}'
+
+  # Lambda permissions for EventBridge
+  rLambdaInvokePermissionInspector:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref rSuppressionEngineLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rInspectorSuppressionRule.Arn
+
+  rLambdaInvokePermissionSecurityHub:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref rSuppressionEngineLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rSecurityHubSuppressionRule.Arn
+
+  rLambdaInvokePermissionScheduledCurrent:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref rSuppressionEngineLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rScheduledCurrentProcessingRule.Arn
+
+  rLambdaInvokePermissionScheduledHistoricNew:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref rSuppressionEngineLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rScheduledHistoricNewRule.Arn
+
+  rLambdaInvokePermissionScheduledHistoricSuppressed:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref rSuppressionEngineLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt rScheduledHistoricSuppressedRule.Arn
+
+  # SSM Parameter for supported regions
+  rSupportedRegionsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/suppression-engine/${pEnvironment}/supported-regions'
+      Type: String
+      Value: !Sub '${AWS::Region}'
+      Description: 'Supported regions for suppression engine'
+
+Outputs:
+  oLambdaFunctionArn:
+    Description: 'Suppression Engine Lambda Function ARN'
+    Value: !GetAtt rSuppressionEngineLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaArn'
+
+  oRulesTableName:
+    Description: 'Suppression Rules DynamoDB Table Name'
+    Value: !Ref rSuppressionRulesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-RulesTable'
+
+  oCacheTableName:
+    Description: 'Suppression Cache DynamoDB Table Name'
+    Value: !Ref rSuppressionCacheTable
+    Export:
+      Name: !Sub '${AWS::StackName}-CacheTable'
+
+  oEventBridgeRuleArn:
+    Description: 'Inspector EventBridge Rule ARN'
+    Value: !GetAtt rInspectorSuppressionRule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EventBridgeRule'

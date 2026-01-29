@@ -46,7 +46,7 @@ export default function CreateEntry({ userProfile }) {
 
   const session = localStorage.getItem("session");
 
-  const apiHostName = "https://csci.com"
+  const apiHostName = "http://localhost:8080"
   const PRODUCTNAMES = ["Security Hub", "Inspector", "Config", "IAM Access Analyzer", "Health", "GuardDuty"]
 
   const navigateHome = (event) => {
@@ -152,13 +152,13 @@ export default function CreateEntry({ userProfile }) {
       return;
     }
     
-    // Non-Inspector: original behavior (no validation - wildcards allowed)
-    // const hasInvalidChars = /[\\*^$+?]/.test(iValue);
-    // if (!isInspector && hasInvalidChars && iValue.length > 0) {
-    //   setErrorMessage('Input cannot contain wildcard characters');
-    // } else {
-    //   setErrorMessage('');
-    // }
+  // //  Non-Inspector: original behavior (no validation - wildcards allowed)
+  //   const hasInvalidChars = /[\\*^$+?]/.test(iValue);
+  //   if (isInspector && hasInvalidChars && iValue.length > 0) {
+  //     setErrorMessage('Input cannot contain wildcard characters');
+  //   } else {
+  //     setErrorMessage('');
+  //   }
   };
 
 
@@ -372,6 +372,7 @@ export default function CreateEntry({ userProfile }) {
                         <Form.Text className="text-muted">{labelResourceIdHelp}</Form.Text>
                       </Form.Group>
 
+
                       <Form.Group className="mb-3" controlId="formBasicResourcePattern">
                         <Form.Label>{labelResourceId}</Form.Label>
                         <Form.Control type="text"
@@ -384,7 +385,7 @@ export default function CreateEntry({ userProfile }) {
                                       value={resourcePattern}
                         />
 
-                        <Form.Text className="text-muted">[Security Hub] A regex of one or more ARNs for which the suppression is applicable. [Inspector] Resource Id as it appears in the AWS Security Hub Findings</Form.Text>
+                        <Form.Text className="text-muted">This field uses Python regex. Examples: <code>.*</code> (any), <code>arn:aws:lambda:.*:.*:function:my-app-.*</code>, <code>\$LATEST</code> (literal $LATEST)</Form.Text>
                       </Form.Group>
 
                       <Form.Group className="mb-3" controlId="formBasicSerId">
@@ -504,17 +505,6 @@ export default function CreateEntry({ userProfile }) {
                           which should be suppressed.</Form.Text>
                       </Form.Group>
 
-                      <Form.Group className="mb-3" controlId="formBasicResourcePattern">
-                        <Form.Label>Resource Pattern</Form.Label>
-                        <Form.Control type="text"
-                                      as="textarea"
-                                      rows={1}
-                                      maxLength={1024}
-                                      placeholder="arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*"
-                                      onChange={(event) => setResourcePattern(event.target.value.trim())}
-                        />
-                        <Form.Text className="text-muted">A regex of one or more ARNs for which the suppression is applicable.</Form.Text>
-                      </Form.Group>
 
                       <Form.Group className="mb-3" controlId="formBasicExtraResourcePattern">
                         <Form.Label>Extra Resource Pattern</Form.Label>

@@ -52,7 +52,7 @@ export default function ViewEntry({ userProfile }) {
 
   const session = localStorage.getItem("session");
 
-  const apiHostName = "https://csci.swift.com"
+  const apiHostName = "http://localhost:8080"
 
 
   const handleFormSubmit = (e) => {
@@ -277,6 +277,7 @@ export default function ViewEntry({ userProfile }) {
                       <Form.Group className="mb-3" controlId="formBasicResourcePattern">
                         <Form.Label>Resource Pattern/ Id</Form.Label>
                         <Form.Control type="text" disabled={true} defaultValue={item.resource_pattern}/>
+                        <Form.Text className="text-muted">This field uses Python regex. Examples: <code>.*</code> (any), <code>arn:aws:lambda:.*:.*:function:my-app-.*</code>, <code>\$LATEST</code> (literal $LATEST)</Form.Text>
                       </Form.Group>
 
                       <Form.Group className="mb-3" controlId="formBasicSerId">
@@ -289,7 +290,7 @@ export default function ViewEntry({ userProfile }) {
                       <Form.Group className="mb-3" controlId="formBasicSerLink">
                         <Form.Label>SER Link*</Form.Label>
                         <Form.Control type="text"
-                                      disabled={true}
+                                      disabled={false}
                                       maxLength={256}
                                       placeholder="https://jira.swift.com:8443/servicedesk/customer/portal/381/GS-1057"
                                       required

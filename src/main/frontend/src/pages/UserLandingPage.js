@@ -9,7 +9,7 @@ import Alert from "react-bootstrap/Alert";
 
 export default function UserLandingPage({ userProfile }) {
     const navigate = useNavigate();
-    const [items, setItems] = useState({});
+    const [items, setItems] = useState({ columns: [], rows: [] });
     const [selectedRow, setSelectRow] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 5;
@@ -18,10 +18,11 @@ export default function UserLandingPage({ userProfile }) {
     const totalPages = Math.ceil(items.length / itemsPerPage);
 
     const [showDanger, setShowDanger] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     const session = localStorage.getItem("session");
 
-    const apiHostName = "https://csci.swift.com"
+    const apiHostName = "http://localhost:8080"
 
     const createNewWorkLoad = (event) => {
         event.preventDefault();
@@ -149,8 +150,11 @@ export default function UserLandingPage({ userProfile }) {
                     }
 
                     setItems(tableData);
+                    setLoading(false);
+                    console.log("Table data set:", tableData);
                 } catch (error) {
                     console.error("Error:", error);
+                    setLoading(false);
                 }
             };
             fetchData();
@@ -218,7 +222,13 @@ export default function UserLandingPage({ userProfile }) {
                                 />
 
                                 <div className="scrollable-tbody mt-3 border-top bg-white pb-3">
-                                    { items !== {} &&
+                                    {loading ? (
+                                        <div className="text-center p-4">
+                                            <div className="spinner-border" role="status">
+                                                <span className="visually-hidden">Loading...</span>
+                                            </div>
+                                        </div>
+                                    ) : items.rows && items.rows.length > 0 ? (
                                         <MDBDataTableV5 //https://mdbootstrap.com/docs/b4/react/tables/datatables/#docsTabsAPI
                                             data={items}
                                             hover
@@ -227,11 +237,16 @@ export default function UserLandingPage({ userProfile }) {
                                             fullPagination
                                             noBottomColumns
                                             responsive={true}
-                                            loading={true}
+                                            loading={false}
                                             //autoWidth
                                             //checkbox
                                         />
-                                    }
+                                    ) : (
+                                        <div className="text-center p-4 text-muted">
+                                            <p>No suppression entries found.</p>
+                                            <p>Click "Create New Entry" to add your first suppression rule.</p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/*<div className="d-flex justify-content-between">*/}

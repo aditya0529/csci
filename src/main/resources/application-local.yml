@@ -1,0 +1,35 @@
+# Local development configuration for AWS DynamoDB connection
+# Use this profile to run locally with your AWS account
+
+amazon:
+  region: "us-east-1"  # Updated to use us-east-1 region
+  useLocalCredentials: true  # Use your local AWS credentials to connect to real DynamoDB
+  # crossAccountRoleArn is not needed for local development
+
+security:
+  require-ssl: false  # Disable SSL for local development
+
+server:
+  port: 8080  # Use standard HTTP port for local development
+  ssl:
+    enabled: false  # Disable SSL for local development
+
+spring:
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+  # Disable SAML for local development
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.saml2.Saml2RelyingPartyAutoConfiguration
+
+# Disable audit for local development
+audit:
+  s3:
+    enabled: false
+
+# Enable debug logging for local development
+logging:
+  level:
+    com.swift.csci: DEBUG
+    com.amazonaws: INFO
+    root: INFO
