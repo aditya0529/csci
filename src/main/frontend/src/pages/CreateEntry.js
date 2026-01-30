@@ -8,7 +8,7 @@ import {Button, Modal} from "react-bootstrap";
 import Alert from 'react-bootstrap/Alert';
 import { useCookies } from 'react-cookie';
 import restController from "../utils/useRestController";
-import { validateInspectorForm, validateInspectorId, validateResourcePattern, /* validateResourceType, */ isFullWildcard } from '../services/inspectorValidation';
+import { validateInspectorForm, validateInspectorId, validateResourcePattern, isFullWildcard } from '../services/inspectorValidation';
 
 export default function CreateEntry({ userProfile }) {
   const navigate = useNavigate();
@@ -46,7 +46,7 @@ export default function CreateEntry({ userProfile }) {
 
   const session = localStorage.getItem("session");
 
-  const apiHostName = "http://localhost:8080"
+  const apiHostName = "https://csci.swift.com"
   const PRODUCTNAMES = ["Security Hub", "Inspector", "Config", "IAM Access Analyzer", "Health", "GuardDuty"]
 
   const navigateHome = (event) => {
@@ -62,7 +62,7 @@ export default function CreateEntry({ userProfile }) {
         resourcePattern: resourcePattern || '',
         resourceType: resourceType || ''
       });
-      
+
       if (!result.valid) {
         const firstError = Object.values(result.errors)[0];
         setErrorMessage(firstError);
@@ -71,7 +71,7 @@ export default function CreateEntry({ userProfile }) {
       setErrorMessage('');
       return true;
     }
-    
+
     return validateResourceInputs();
   }
 
@@ -112,7 +112,7 @@ export default function CreateEntry({ userProfile }) {
   const handleIdInputChange = (event) => {
     const iValue = event.target.value;
     setId(iValue);
-    
+
     // Inspector validation
     if (isInspector && iValue.length > 0) {
       const result = validateInspectorId(iValue);
@@ -123,7 +123,7 @@ export default function CreateEntry({ userProfile }) {
       }
       return;
     }
-    
+
     // original val
     if (!isInspector && iValue.length > 0) {
       const hasInvalidChars = /[\\*^$+?]/.test(iValue);
@@ -139,7 +139,7 @@ export default function CreateEntry({ userProfile }) {
   const handleResourceInputChange = (event) => {
     const iValue = event.target.value;
     setResourcePattern(iValue);
-    
+
     // Inspector (wildcards depend on ID)
     if (isInspector && iValue.length > 0) {
       const isIdWildcard = isFullWildcard(id);
@@ -151,29 +151,20 @@ export default function CreateEntry({ userProfile }) {
       }
       return;
     }
-    
-  // //  Non-Inspector: original behavior (no validation - wildcards allowed)
-  //   const hasInvalidChars = /[\\*^$+?]/.test(iValue);
-  //   if (isInspector && hasInvalidChars && iValue.length > 0) {
-  //     setErrorMessage('Input cannot contain wildcard characters');
-  //   } else {
-  //     setErrorMessage('');
-  //   }
+
+    // Non-Inspector: original behavior (no validation - wildcards allowed)
+    // const hasInvalidChars = /[\\*^$+?]/.test(iValue);
+    // if (isInspector && hasInvalidChars && iValue.length > 0) {
+    //   setErrorMessage('Input cannot contain wildcard characters');
+    // } else {
+    //   setErrorMessage('');
+    // }
   };
 
 
   const handleResourceTypeChange = (event) => {
     const iValue = event.target.value.trim();
     setResourceType(iValue);
-    
-    // if (isInspector && iValue.length > 0) {
-    //   const result = validateResourceType(iValue);
-    //   if (!result.valid) {
-    //     setErrorMessage(result.message);
-    //   } else {
-    //     setErrorMessage('');
-    //   }
-    // }
   };
 
   const handleDropdownChange = (event) => {
@@ -372,7 +363,6 @@ export default function CreateEntry({ userProfile }) {
                         <Form.Text className="text-muted">{labelResourceIdHelp}</Form.Text>
                       </Form.Group>
 
-
                       <Form.Group className="mb-3" controlId="formBasicResourcePattern">
                         <Form.Label>{labelResourceId}</Form.Label>
                         <Form.Control type="text"
@@ -385,6 +375,8 @@ export default function CreateEntry({ userProfile }) {
                                       value={resourcePattern}
                         />
 
+                        <Form.Text className="text-muted">[Security Hub] A regex of one or more ARNs for which the suppression is applicable. [Inspector] Resource Id as it appears in the AWS Security Hub Findings</Form.Text>
+                        <br/>
                         <Form.Text className="text-muted">This field uses Python regex. Examples: <code>.*</code> (any), <code>arn:aws:lambda:.*:.*:function:my-app-.*</code>, <code>\$LATEST</code> (literal $LATEST)</Form.Text>
                       </Form.Group>
 
@@ -505,6 +497,17 @@ export default function CreateEntry({ userProfile }) {
                           which should be suppressed.</Form.Text>
                       </Form.Group>
 
+                      <Form.Group className="mb-3" controlId="formBasicResourcePattern">
+                        <Form.Label>Resource Pattern</Form.Label>
+                        <Form.Control type="text"
+                                      as="textarea"
+                                      rows={1}
+                                      maxLength={1024}
+                                      placeholder="arn:aws:elasticloadbalancing:*:*:loadbalancer/app/*/*"
+                                      onChange={(event) => setResourcePattern(event.target.value.trim())}
+                        />
+                        <Form.Text className="text-muted">A regex of one or more ARNs for which the suppression is applicable.</Form.Text>
+                      </Form.Group>
 
                       <Form.Group className="mb-3" controlId="formBasicExtraResourcePattern">
                         <Form.Label>Extra Resource Pattern</Form.Label>
